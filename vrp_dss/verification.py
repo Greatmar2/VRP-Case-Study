@@ -3,8 +3,10 @@ from typing import List, Dict, Tuple
 
 from openpyxl import load_workbook
 
-import data
-from data import Data
+from evaluate import evaluate_solution
+from main import Runner
+from model import run_settings
+from settings import Data
 
 
 def get_data_from_sheet(row: int) -> str:
@@ -14,7 +16,7 @@ def get_data_from_sheet(row: int) -> str:
     return run_data_sheet[f"G{row}"].value
 
 
-def extract_data_from_output(math_output: str) -> Tuple[data.Data, Dict[int, List[List[Tuple[int, int]]]]]:
+def extract_data_from_output(math_output: str) -> Tuple[Data, Dict[int, List[List[Tuple[int, int]]]]]:
     """Takes the mathematical output text and converts it to input data for the metaheuristic."""
     output_lines = math_output.split("\n")
     # Start after the "Input:" line
@@ -62,7 +64,7 @@ def extract_data_from_output(math_output: str) -> Tuple[data.Data, Dict[int, Lis
             to_x, to_y = to_loc
             distance = ((from_x - to_x) ** 2 + (from_y - to_y) ** 2) ** 0.5
             distances[index].append(distance)
-            times[index].append(distance)
+            times[index].append(distance / 80)
 
     # Loop through the vehicles to find information about the vehicle types.
     vehicle_name_types: Dict[str, int] = {}
@@ -149,40 +151,44 @@ def extract_data_from_output(math_output: str) -> Tuple[data.Data, Dict[int, Lis
     return run_data, math_solution
 
 
-def write_data_to_sheet(row: int, math_objective: float, meta_routes: str, meta_time: float, meta_objective: float):
+def write_data_to_sheet(row: int, math_routes: str, math_objective: float, meta_routes: str, meta_time: float,
+                        meta_objective: float):
     """Writes metaheuristic output data to the solve times summary sheet."""
-    workbook = load_workbook(filename="Solve Times Summary.xlsx")
+    file_name = "Solve Times Summary.xlsx"
+    workbook = load_workbook(filename=file_name)
     run_data_sheet = workbook["Run Data"]
-    run_data_sheet[f"I{row}"].value = math_objective
-    run_data_sheet[f"J{row}"].value = meta_routes
-    run_data_sheet[f"K{row}"].value = meta_time
-    run_data_sheet[f"L{row}"].value = meta_objective
+    run_data_sheet[f"I{row}"].value = math_routes
+    run_data_sheet[f"J{row}"].value = math_objective
+    run_data_sheet[f"K{row}"].value = meta_routes
+    run_data_sheet[f"L{row}"].value = meta_time
+    run_data_sheet[f"M{row}"].value = meta_objective
+
+    workbook.save(file_name)
 
 
 if __name__ == "__main__":
     """Verify the metaheuristic against all mathematical instances."""
     start_row = 2  # The row to start on
-    end_row = 3  # The row to stop before
+    end_row = 62  # The row to stop before
 
     for row in range(start_row, end_row):
         text_data = get_data_from_sheet(row)
         input_data, exact_solution = extract_data_from_output(text_data)
         # print(input_data)
         # print(exact_solution)
-        data.run_data = input_data
-        data.run_config = data.Config()
-
-        from main import Runner
+        # print(input_data.repr_all())
+        run_settings.set_run_data(input_data)
+        # data_globals.update_globals()
+        # model.run_data = input_data
+        # model.run_config = Config()
 
         start_time = perf_counter()
         runner = Runner(5000, 1800, use_multiprocessing=False)
         best_solution = runner.run()
         end_time = perf_counter()
 
-        from evaluate import evaluate_solution
-
         eval_results = evaluate_solution(exact_solution)
 
-        write_data_to_sheet(row=row, math_objective=eval_results["penalised_cost"],
+        write_data_to_sheet(row=row, math_routes=str(exact_solution), math_objective=eval_results["penalised_cost"],
                             meta_routes=best_solution.pretty_route_output(), meta_time=end_time - start_time,
                             meta_objective=best_solution.get_penalised_cost(1))
