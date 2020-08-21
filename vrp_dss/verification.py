@@ -168,8 +168,8 @@ def write_data_to_sheet(row: int, math_routes: str, math_objective: float, meta_
 
 if __name__ == "__main__":
     """Verify the metaheuristic against all mathematical instances."""
-    start_row = 7  # The row to start on
-    end_row = 62  # The row to stop before
+    start_row = 38  # The row to start on
+    end_row = start_row + 1  # The row to stop before
 
     for row in range(start_row, end_row):
         text_data = get_data_from_sheet(row)
@@ -186,6 +186,9 @@ if __name__ == "__main__":
         runner = Runner(5000, 1800, use_multiprocessing=False)
         best_solution = runner.run()
         end_time = perf_counter()
+
+        print("Pretty output:\n" + best_solution.pretty_route_output())
+        print(f"Run time: {end_time - start_time}")
 
         eval_results = evaluate_solution(exact_solution)
 
