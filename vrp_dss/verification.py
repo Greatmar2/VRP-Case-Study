@@ -168,7 +168,7 @@ def write_data_to_sheet(row: int, math_routes: str, math_objective: float, meta_
 
 if __name__ == "__main__":
     """Verify the metaheuristic against all mathematical instances."""
-    start_row = 2  # The row to start on
+    start_row = 7  # The row to start on
     end_row = 62  # The row to stop before
 
     for row in range(start_row, end_row):
