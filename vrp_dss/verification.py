@@ -168,10 +168,12 @@ def write_data_to_sheet(row: int, math_routes: str, math_objective: float, meta_
 
 if __name__ == "__main__":
     """Verify the metaheuristic against all mathematical instances."""
-    start_row = 38  # The row to start on
-    end_row = start_row + 1  # The row to stop before
+    # start_row = 38  # The row to start on
+    # end_row = start_row + 1  # The row to stop before
+    rows_to_validate = [21, 29, 36, 40, 42, 46, 55, 59]
 
-    for row in range(start_row, end_row):
+    # for row in range(start_row, end_row):
+    for row in rows_to_validate:
         text_data = get_data_from_sheet(row)
         input_data, exact_solution = extract_data_from_output(text_data)
         # print(input_data)
