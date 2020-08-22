@@ -13,7 +13,7 @@ def get_data_from_sheet(row: int) -> str:
     """Gets the output text file data from a certain row on the solve times summary sheet."""
     workbook = load_workbook(filename="Solve Times Summary.xlsx", read_only=True)
     run_data_sheet = workbook["Run Data"]
-    return run_data_sheet[f"G{row}"].value
+    return run_data_sheet[f"H{row}"].value
 
 
 def extract_data_from_output(math_output: str) -> Tuple[Data, Dict[int, List[List[Tuple[int, int]]]]]:
@@ -157,11 +157,11 @@ def write_data_to_sheet(row: int, math_routes: str, math_objective: float, meta_
     file_name = "Solve Times Summary.xlsx"
     workbook = load_workbook(filename=file_name)
     run_data_sheet = workbook["Run Data"]
-    run_data_sheet[f"I{row}"].value = math_routes
-    run_data_sheet[f"J{row}"].value = math_objective
-    run_data_sheet[f"K{row}"].value = meta_routes
-    run_data_sheet[f"L{row}"].value = meta_time
-    run_data_sheet[f"M{row}"].value = meta_objective
+    run_data_sheet[f"J{row}"].value = math_routes
+    run_data_sheet[f"K{row}"].value = math_objective
+    run_data_sheet[f"N{row}"].value = meta_routes
+    run_data_sheet[f"O{row}"].value = meta_time
+    run_data_sheet[f"P{row}"].value = meta_objective
 
     workbook.save(file_name)
 
@@ -170,7 +170,7 @@ if __name__ == "__main__":
     """Verify the metaheuristic against all mathematical instances."""
     # start_row = 38  # The row to start on
     # end_row = start_row + 1  # The row to stop before
-    rows_to_validate = [21, 29, 36, 40, 42, 46, 55, 59]
+    rows_to_validate = [21, 36, 42, 59]
 
     # for row in range(start_row, end_row):
     for row in rows_to_validate:
