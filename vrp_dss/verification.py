@@ -154,8 +154,8 @@ def extract_data_from_output(math_output: str) -> Tuple[Data, Dict[int, List[Lis
 def write_data_to_sheet(row: int, math_routes: str, math_objective: float, meta_routes: str, meta_time: float,
                         meta_objective: float):
     """Writes metaheuristic output data to the solve times summary sheet."""
-    file_name = "Solve Times Summary.xlsx"
-    workbook = load_workbook(filename=file_name)
+    filename = "Solve Times Summary.xlsx"
+    workbook = load_workbook(filename=filename)
     run_data_sheet = workbook["Run Data"]
     run_data_sheet[f"J{row}"].value = math_routes
     run_data_sheet[f"K{row}"].value = math_objective
@@ -163,7 +163,7 @@ def write_data_to_sheet(row: int, math_routes: str, math_objective: float, meta_
     run_data_sheet[f"O{row}"].value = meta_time
     run_data_sheet[f"P{row}"].value = meta_objective
 
-    workbook.save(file_name)
+    workbook.save(filename)
 
 
 if __name__ == "__main__":
@@ -185,7 +185,7 @@ if __name__ == "__main__":
         # model.run_config = Config()
 
         start_time = perf_counter()
-        runner = Runner(5000, 1800, use_multiprocessing=False)
+        runner = Runner(5000, -1, use_multiprocessing=False)
         best_solution = runner.run()
         end_time = perf_counter()
 
