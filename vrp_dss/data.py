@@ -1,13 +1,18 @@
 """This script provides functionality to import data and convert it to usable forms."""
 import json
-from math import inf
+from math import inf, floor
+from time import perf_counter
 from typing import List, Optional, Tuple, Union, Dict
 
+import requests
 from openpyxl import load_workbook
 from openpyxl.worksheet.worksheet import Worksheet
 
+from bing_key import api_key
+from evaluate import evaluate_solution
+from main import Runner
+from model import run_settings
 from settings import Data
-from travel_matrix import read_input_data
 
 
 class VehicleType:
@@ -74,8 +79,13 @@ class PhysicalLocation:
     def __eq__(self, other):
         if isinstance(other, PhysicalLocation):
             return other.name == self.name
-        if isinstance(other, str):
+        if isinstance(other, int):
             return self.store_ids.count(other) > 0
+        if isinstance(other, str):
+            try:
+                return self.store_ids.count(int(other)) > 0
+            except (ValueError, TypeError):
+                return False
         return False
 
     @property
@@ -90,32 +100,38 @@ class PhysicalLocation:
         :param offload_str: String containing the target offload time and the target offload time.
         :returns: Integer representing the average offload time in hours.
         """
-        # Expected offload string format: 00:00  (16:58)   min/container
         timestamp = offload_str[offload_str.index("(") + 1:offload_str.index(")")]
         time_units = timestamp.split(":")
         offload_time = (int(time_units[0]) * 60 + int(time_units[1])) / 3600
 
+        # If there is no average offload time stored, then set it to 5.5 minutes
+        if offload_time == 0:
+            offload_time = 0.09167
+
         return offload_time
 
     @staticmethod
-    def extract_store_ids(stores_str: str) -> List[str]:
+    def extract_store_ids(stores_str: str) -> List[int]:
         """Extracts a list of the store IDs from the "stores at location" string.
 
         :param stores_str: String containing a list of stores at the location.
         :returns: A list of the IDs of stores at that location."""
-        # Expected store string format: (3) 35668-Aurora SPAR, 35805-Aurora TOPS, 35924-Aurora PHARMACY
         stores = stores_str[4:].split(", ")
-        store_ids: List[str] = []
+        store_codes: List[int] = []
         for store in stores:
-            store_ids.append(store.split("-")[0])
+            store_code = store.split("-")[0]
+            if store_code:
+                store_codes.append(int(store_code))
 
-        return store_ids
+        return store_codes
 
 
 class Stop:
     def __init__(self, location: PhysicalLocation, delivered: int):
         self.location = location
         self.delivered = delivered
+        # if delivered < 0:
+        #     raise ValueError("Negative amount delivered!")
 
 
 class Route:
@@ -139,14 +155,15 @@ class Route:
         return self.vehicle.vehicle_type.data_index, route
 
 
-def read_locations(filename: str) -> List[PhysicalLocation]:
+def read_locations(filename: str = "Model Data.xlsx", worksheet_name: str = "Locations") -> List[
+    PhysicalLocation]:
     """Reads in the store locations and creates a list of PhysicalLocation objects."""
     workbook = load_workbook(filename=filename, read_only=True)
-    locations_sheet = workbook["Store Locations"]
+    locations_sheet = workbook[worksheet_name]
     locations: List[PhysicalLocation] = [PhysicalLocation(0, "Depot", -34.005993, 18.537626, 0.09167, "")]
     row = 2
     while locations_sheet[f"A{row}"].value:
-        locations.append(PhysicalLocation(data_index=row - 2, name=locations_sheet[f"A{row}"].value,
+        locations.append(PhysicalLocation(data_index=row - 1, name=locations_sheet[f"A{row}"].value,
                                           latitude=locations_sheet[f"B{row}"].value,
                                           longitude=locations_sheet[f"C{row}"].value,
                                           offload=locations_sheet[f"E{row}"].value,
@@ -155,17 +172,24 @@ def read_locations(filename: str) -> List[PhysicalLocation]:
     return locations
 
 
-def find_location(store_id: str, locations: List[PhysicalLocation]) -> Optional[PhysicalLocation]:
+def find_location(store_code: int, locations: List[PhysicalLocation]) -> Optional[PhysicalLocation]:
     """Searches the list of locations for one that contains the given store ID."""
     # Hopefully List.index can utilise the custom __eq__ function for PhysicalLocation.
-    # Otherwise I'll use a list comprehension.
     try:
-        return locations[locations.index(store_id)]
+        return locations[locations.index(store_code)]
     except ValueError:
         return None
 
+    # for location in locations:
+    #     if location.store_ids.count(store_code) > 0:
+    #         return location
 
-def read_vehicles(types_file: str, types_sheet: str, vehicles_file: str, vehicles_sheet: str) -> Tuple[
+    # return None
+    # raise ValueError(f"Store code {store_code} not found!")
+
+
+def read_vehicles(vehicles_file: str, vehicles_sheet: str = "trucks", types_file: str = "Model Data.xlsx",
+                  types_sheet: str = "Vehicle Types") -> Tuple[
     List[VehicleType], List[Vehicle]]:
     """Reads in information about the vehicle types and vehicles."""
     types_workbook = load_workbook(filename=types_file, read_only=True)
@@ -190,7 +214,7 @@ def read_vehicles(types_file: str, types_sheet: str, vehicles_file: str, vehicle
             capacity = int(vehicles_sheet[f"C{row}"].value)
             vehicles.append(Vehicle(name=vehicles_sheet[f"A{row}"].value,
                                     vehicle_type=vehicle_types[capacities.index(capacity)]))
-        except ValueError:
+        except (ValueError, TypeError):
             pass
         row += 1
 
@@ -246,7 +270,7 @@ def read_archive(filename: str, locations: List[PhysicalLocation], vehicles: Lis
         # Get the route code
         code = deliveries_sheet[f"D{row}"].value
         # If the route code does not match, then the vehicle is probably finished
-        if code != route.code:
+        if route is None or code != route.code:
             if route:
                 # In the archived data, vehicles are sometimes loaded with more than 30 pallets.
                 # The schedulers make this work by consolidating pallets, reducing the actual number of pallets used.
@@ -256,67 +280,100 @@ def read_archive(filename: str, locations: List[PhysicalLocation], vehicles: Lis
                 stop_ind = 0
                 while total_delivered > route.vehicle.vehicle_type.capacity:
                     # Cycle through the stops, removing one demand from each at a time until total demand is acceptable
-                    route.stops[stop_ind].delivered -= 1
-                    route.stops[stop_ind].location.demand -= 1
-                    total_delivered -= 1
+                    if route.stops[stop_ind].delivered > 1:
+                        # Don't decrement the amount delivered to stops that have no more than 1 pallet delivered.
+                        route.stops[stop_ind].delivered -= 1
+                        route.stops[stop_ind].location.demand -= 1
+                        total_delivered -= 1
                     stop_ind = (stop_ind + 1) % len(route.stops)
                 if not routes.get(route.vehicle.vehicle_type.data_index):
                     routes[route.vehicle.vehicle_type.data_index] = []
                 routes[route.vehicle.vehicle_type.data_index].append(route)
             # Check if the current route code matches anything already found
             # (just in case one vehicle's lines are spread out)
-            route = find_route(code, routes)
+            # route = find_route(code, routes)
             # If not, create a new route
-            if not route:
-                route = Route(code=code, vehicle=find_vehicle(horse=deliveries_sheet[f"J{row}"].value,
-                                                              trailer=deliveries_sheet[f"K{row}"].value,
-                                                              carried=deliveries_sheet[f"P{row}"].value,
-                                                              vehicles=vehicles, vehicle_types=vehicle_types))
-                route.vehicle.vehicle_type.vehicles_used += 1
+            # if not route:
+            route = Route(code=code, vehicle=find_vehicle(horse=deliveries_sheet[f"J{row}"].value,
+                                                          trailer=deliveries_sheet[f"K{row}"].value,
+                                                          carried=deliveries_sheet[f"P{row}"].value,
+                                                          vehicles=vehicles, vehicle_types=vehicle_types))
+            route.vehicle.vehicle_type.vehicles_used += 1
 
         # Find the location
-        location = find_location(deliveries_sheet[f"A{row}"].value, locations)
+        location = find_location(deliveries_sheet[f"B{row}"].value, locations)
 
-        # Read in the demands, defaulting to 0 if they are blank or have "C/S"
-        try:
-            dry_demand = int(deliveries_sheet[f"M{row}"].value)
-        except ValueError:
-            dry_demand = 0
-        try:
-            perish_demand = deliveries_sheet[f"N{row}"].value
-        except ValueError:
-            perish_demand = 0
-        try:
-            pick_by_line_demand = deliveries_sheet[f"O{row}"].value
-        except ValueError:
-            pick_by_line_demand = 0
-        demand = dry_demand + perish_demand + pick_by_line_demand
+        if location:
+            # Read in the demands, defaulting to 0 if they are blank or have "C/S"
+            try:
+                dry_demand = int(deliveries_sheet[f"M{row}"].value)
+            except (ValueError, TypeError):
+                dry_demand = 0
+            try:
+                perish_demand = int(deliveries_sheet[f"N{row}"].value)
+            except (ValueError, TypeError):
+                perish_demand = 0
+            try:
+                pick_by_line_demand = int(deliveries_sheet[f"O{row}"].value)
+            except (ValueError, TypeError):
+                pick_by_line_demand = 0
 
-        # Add the demand to the location's overall demand
-        location.demand += demand
-        # And set the amount delivered on this stop in the route
-        route.stops.append(Stop(location, demand))
+            # if dry_demand < 0 or perish_demand < 0 or pick_by_line_demand < 0:
+            #     raise ValueError("Negative demand.")
+            demand = dry_demand + perish_demand + pick_by_line_demand
+
+            # Add the demand to the location's overall demand
+            location.demand += demand
+            # And set the amount delivered on this stop in the route
+            # route.stops.append(Stop(location, demand))
+            # Check whether the previous stop was at the same location. If so, merge them into one stop.
+            if len(route.stops) > 0 and route.stops[0].location == location:
+                route.stops[0].delivered += demand
+            else:
+                # Must be inserted at the start of the route, because the routes are in reverse order in the archives
+                route.stops.insert(0, Stop(location, demand))
 
         row += 1
 
     return routes
 
 
-def save_archive_routes(routes: Dict[int, List[Route]]):
+def convert_routes_to_lists(routes: Dict[int, List[Route]]) -> Dict[int, List[List[Tuple[int, int]]]]:
+    """Converts a dict of routes to lists of tuples."""
+    lists: Dict[int, List[List[Tuple[int, int]]]] = {}
+    for vehicle_type_index, tour in routes.items():
+        lists[vehicle_type_index] = [[(stop.location.data_index, stop.delivered) for stop in route.stops] for route in
+                                     tour]
+
+    return lists
+
+
+# def convert_lists_to_routes(lists: Dict[int, List[List[Tuple[int, int]]]]) -> Dict[int, List[Route]]:
+#     """Converts a dict of lists of tuples to routes."""
+#     routes: Dict[int, List[Route]] = {}
+#     for vehicle_type_index, tuple_tour in lists.items():
+#         tour = []
+#         for tuple_route in tuple_tour:
+#             route = Route()
+
+
+def save_archive_routes(routes: Dict[int, List[Route]], filename: str = "Model Data.xlsx"):
     """Save the archive routes to the workbook in JSON format."""
-    workbook = load_workbook("Model Data.xlsx")
-    workbook["Archive Routes"]["A1"].value = json.dumps(routes)
+    workbook = load_workbook(filename)
+    workbook["Archive Routes"]["A1"].value = json.dumps(convert_routes_to_lists(routes))
+    workbook.save(filename)
 
 
-def load_archive_routes() -> Dict[int, List[Route]]:
+def load_archive_routes(filename: str = "Model Data.xlsx") -> Dict[int, List[List[Tuple[int, int]]]]:
     """Load the archive routes from the workbook in JSON format."""
-    workbook = load_workbook("Model Data.xlsx")
+    workbook = load_workbook(filename, read_only=True)
     return json.loads(workbook["Archive Routes"]["A1"].value)
 
 
-def save_input_data(locations: List[PhysicalLocation], vehicle_types: List[VehicleType], anonymised: bool = False):
+def save_input_data(locations: List[PhysicalLocation], vehicle_types: List[VehicleType],
+                    filename: str = "Model Data.xlsx", anonymised: bool = False):
     """Saves the information for all locations and vehicle types for the day imported."""
-    workbook = load_workbook("Model Data.xlsx")
+    workbook = load_workbook(filename)
 
     # Add the locations
     locations_sheet: Worksheet = workbook["Locations"]
@@ -368,39 +425,39 @@ def save_input_data(locations: List[PhysicalLocation], vehicle_types: List[Vehic
     for vehicle_type in vehicle_types:
         vehicle_types_sheet[f"F{vehicle_type.data_index + 2}"].value = vehicle_type.vehicles_used
 
-    workbook.save("Model Data.xlsx")
+    workbook.save(filename)
 
 
-def convert_archive(archive_file: str, anonymised: bool = False):
-    """Reads in the demand, location, vehicle, and route data from the archive and then saves it"""
-    locations = read_locations(filename="SPAR Locations and Schedule.xlsx")
-    vehicle_types, vehicles = read_vehicles(types_file="Model Data.xlsx", types_sheet="Vehicle Types",
+def convert_archive(archive_filename: str, data_filename: str = "Model Data.xlsx", anonymised: bool = False):
+    """Reads in the demand, location, vehicle, and route data from the archive and then saves it."""
+    locations = read_locations(filename="SPAR Locations and Schedule.xlsx", worksheet_name="Store Locations")
+    vehicle_types, vehicles = read_vehicles(types_file=data_filename, types_sheet="Vehicle Types",
                                             vehicles_file="Spar Fleet.xlsx", vehicles_sheet="trucks")
-    routes = read_archive(archive_file, locations, vehicles, vehicle_types)
-    save_input_data(locations, vehicle_types, anonymised)
+    routes = read_archive(archive_filename, locations, vehicles, vehicle_types)
+    save_input_data(locations, vehicle_types, anonymised=anonymised)
     save_archive_routes(routes)
-    if anonymised:
-        location_names = [location.anonymous_name for location in locations]
-    else:
-        location_names = [location.name for location in locations]
+    # if anonymised:
+    #     location_names = [location.anonymous_name for location in locations]
+    # else:
+    #     location_names = [location.name for location in locations]
 
 
-def import_data() -> Data:
+def import_data(filename: str = "Model Data.xlsx") -> Data:
     """Reads in the demand, location, and vehicle data to create input data for the algorithm.
     Also generates the routes from the archived data."""
-    data_workbook = load_workbook(filename="Model Data.xlsx", read_only=True)
+    data_workbook = load_workbook(filename=filename, read_only=True, data_only=True)
 
     # Read in the location information
     location_sheet = data_workbook["Locations"]
     locations: List[str] = []
-    demand: List[float] = []
+    demand: List[int] = []
     window_start: List[float] = []
     window_end: List[float] = []
     average_unload_time: List[float] = []
     row = 2
     while location_sheet[f"A{row}"].value:
         locations.append(location_sheet[f"A{row}"].value)
-        demand.append(location_sheet[f"D{row}"].value)
+        demand.append(int(location_sheet[f"D{row}"].value))
         window_start.append(location_sheet[f"E{row}"].value)
         window_end.append(location_sheet[f"F{row}"].value)
         average_unload_time.append(location_sheet[f"G{row}"].value)
@@ -408,7 +465,7 @@ def import_data() -> Data:
         row += 1
 
     # Read in the vehicle data
-    vehicle_sheet = data_workbook["Vehicle types"]
+    vehicle_sheet = data_workbook["Vehicle Types"]
     vehicle_types: List[str] = []
     distance_cost: List[float] = []
     time_cost: List[float] = []
@@ -419,12 +476,12 @@ def import_data() -> Data:
         vehicle_types.append(vehicle_sheet[f"A{row}"].value)
         distance_cost.append(vehicle_sheet[f"B{row}"].value)
         time_cost.append(vehicle_sheet[f"C{row}"].value)
-        pallet_capacity.append(vehicle_sheet[f"D{row}"].value)
-        available_vehicles.append(vehicle_sheet[f"G{row}"].value)
+        pallet_capacity.append(int(vehicle_sheet[f"D{row}"].value))
+        available_vehicles.append(int(vehicle_sheet[f"G{row}"].value))
 
         row += 1
 
-    distances, times = read_input_data()
+    distances, times = import_matrix_input_data()
 
     archive_data = Data(locations=locations, demand=demand, window_start=window_start, window_end=window_end,
                         average_unload_time=average_unload_time, distances=distances, times=times,
@@ -432,3 +489,233 @@ def import_data() -> Data:
                         pallet_capacity=pallet_capacity, available_vehicles=available_vehicles)
 
     return archive_data
+
+
+def fetch_archive_routes(filename: str = "Model Data.xlsx") -> Dict[str, List[List[List[int]]]]:
+    """Retrieves the archive routes from the model data file to compare to the metaheuristic's solution."""
+    workbook = load_workbook(filename, read_only=True)
+    return json.loads(workbook["Archive Routes"]["A1"])
+
+
+def pull_travel_data_from_bing(locations: List[PhysicalLocation]) -> Tuple[List[List[float]], List[List[float]]]:
+    """Will generate a travel time and distance matrix between all locations using Bing Maps."""
+    # Bing has a limit of 2500 origin-destination pairings for a distance matrix
+    max_pairs = 2500
+    # The locations will need to be iterated across with as many rows as possible at a time.
+    rows_per_call = floor(max_pairs / len(locations))
+    if rows_per_call == 0:
+        raise ValueError("Too many locations!")
+    start_row = 0
+    distances: List[List[float]] = []
+    times: List[List[float]] = []
+
+    print(rows_per_call)
+
+    # Keep iterating until all locations have been used as an origin to all other locations
+    while start_row < len(locations):
+        # Use a POST request to get information from the Bing maps API.
+        # Example request and responses are found at
+        # https://docs.microsoft.com/en-us/bingmaps/rest-services/examples/distance-matrix-example
+
+        end_row = min(start_row + rows_per_call, len(locations))
+
+        # Prepare the data for the post
+        post_body = {"origins": [],
+                     "destinations": [],
+                     "travelMode": "driving"}
+        # Request information from the current set of origins to all destinations
+        for origin in locations[start_row:end_row]:
+            post_body["origins"].append({"latitude": origin.latitude, "longitude": origin.longitude})
+        for destination in locations:
+            post_body["destinations"].append({"latitude": destination.latitude, "longitude": destination.longitude})
+        print(post_body)
+
+        # Send the request
+        # Key in .gitignored file, because this repository is public.
+        response = requests.post(f"https://dev.virtualearth.net/REST/v1/Routes/DistanceMatrix?key={api_key}",
+                                 data=json.dumps(post_body))
+        # The response is in JSON format
+        # response: dict = json.loads(request.json())
+        response_json: dict = response.json()
+        if response_json["statusCode"] == 200:
+            # Only interested in the results from the response
+            results: List[Dict[str, Union[int, float]]] = response_json["resourceSets"][0]["resources"][0]["results"]
+            result_index = 0
+
+            # The results are a list of dicts, which iterate first through origins then destinations
+            for origin_index, origin in enumerate(locations[start_row:end_row]):
+                origin_distances = []
+                origin_times = []
+                for destination_index, destination in enumerate(locations):
+                    # The response will exclude elements where the origin and destination are the same location
+                    # if origin == destination:
+                    #     continue
+
+                    # The dict contains the origin and destination
+                    if results[result_index]["destinationIndex"] != destination_index or \
+                            results[result_index]["destinationIndex"] != destination_index:
+                        raise ValueError(
+                            f"Distance Matrix result indices at {result_index} don't match expected indices "
+                            f"{origin_index} and {destination_index}.\n{results}")
+                    # Store the expected travel distance and duration
+                    origin_distances.append(results[result_index]["travelDistance"])
+                    # Bing gives the durations in minutes, my algorithm uses hours
+                    origin_times.append(results[result_index]["travelDuration"] / 60)
+
+                    result_index += 1
+
+                distances.append(origin_distances)
+                times.append(origin_times)
+            start_row = end_row
+        else:
+            raise ValueError(f"Request failed!\nRequest: {response.request}\nResponse: {response_json}")
+
+    return distances, times
+
+
+def import_matrix_input_data(filename: str = "Model Data.xlsx") -> Tuple[List[List[float]], List[List[float]]]:
+    """Reads the matrices from the model data sheet."""
+    workbook = load_workbook(filename, read_only=True, data_only=True)
+    # distance_sheet: Worksheet = workbook["Distances"]
+    # time_sheet: Worksheet = workbook["Times"]
+    # row = 2
+    # times: List[List[float]] = []
+    # distances: List[List[float]] = []
+    # while distance_sheet.cell(row=row, column=1).value:
+    #     column = 2
+    #     distance_row = []
+    #     time_row = []
+    #     while distance_sheet.cell(row=1, column=column).value:
+    #         distance_row.append(distance_sheet.cell(row=row, column=column).value)
+    #         time_row.append(time_sheet.cell(row=row, column=column).value)
+    #
+    #         column += 1
+    #
+    #     distances.append(distance_row)
+    #     times.append(time_row)
+    #     print(f"Row {row}")
+    #
+    #     row += 1
+
+    # With the workbook opened in read only, it the worksheets are iterable objects
+    distance_sheet: Worksheet = workbook["Distances"]
+    time_sheet: Worksheet = workbook["Times"]
+    distances: List[List[float]] = [[distance.value for distance in distance_row] for distance_row in distance_sheet]
+    times: List[List[float]] = [[time.value for time in time_row] for time_row in time_sheet]
+
+    # Can't use slices to cut the worksheets, so must cut the lists after taking the values from the sheets
+    distances = [[distance for distance in distance_row[1:]] for distance_row in distances[1:]]
+    times = [[time for time in time_row[1:]] for time_row in times[1:]]
+
+    return distances, times
+
+
+def save_matrix_input_data(locations: List[PhysicalLocation], distances: List[List[float]], times: List[List[float]],
+                           filename: str = "Model Data.xlsx", anonymise: bool = False):
+    """Saves the matrix information to the model data sheet."""
+    workbook = load_workbook(filename)
+
+    # Add the location distances and times
+    distances_sheet: Worksheet = workbook["Distances"]
+    times_sheet: Worksheet = workbook["Times"]
+    for row, distances_row in enumerate(distances):
+        # Put location names at the start of each row
+        if anonymise:
+            distances_sheet.cell(row=row + 2, column=1, value=locations[row].anonymous_name)
+            times_sheet.cell(row=row + 2, column=1, value=locations[row].anonymous_name)
+        else:
+            distances_sheet.cell(row=row + 2, column=1, value=locations[row].name)
+            times_sheet.cell(row=row + 2, column=1, value=locations[row].name)
+        for col, distance in enumerate(distances_row):
+            if row == 0:
+                # Put location names at the top of each column
+                if anonymise:
+                    distances_sheet.cell(row=1, column=col + 2, value=locations[col].anonymous_name)
+                    times_sheet.cell(row=1, column=col + 2, value=locations[col].anonymous_name)
+                else:
+                    distances_sheet.cell(row=1, column=col + 2, value=locations[col].name)
+                    times_sheet.cell(row=1, column=col + 2, value=locations[col].name)
+            if row == col:
+                # If on the same row and col, set the travel to be equal to going to the depot and back
+                dist = distances[row][0] + distances[0][row]
+                time = times[row][0] + times[0][row]
+            else:
+                dist = distances[row][col]
+                time = times[row][col]
+            # Apply the value to the sheet
+            distances_sheet.cell(row=row + 2, column=col + 2, value=dist)
+            times_sheet.cell(row=row + 2, column=col + 2, value=time)
+
+    workbook.save(filename)
+
+
+def update_matrices(use_model_data_sheet: bool = True):
+    """Reads in the location data from the appropriate sheet, requests the travel matrix from Bing, then saves this to
+    the sheet."""
+    if use_model_data_sheet:
+        locations = read_locations()
+    else:
+        locations = read_locations("SPAR Locations and Schedule.xlsx", "Store Locations")
+
+    distances, times = pull_travel_data_from_bing(locations)
+    save_matrix_input_data(locations, distances, times, anonymise=True)
+
+
+def save_output(filename: str, row: int, archive_routes: str, archive_objective: float, meta_routes: str,
+                meta_time: float, meta_objective: float):
+    """Writes metaheuristic output data to the solve times summary sheet."""
+    workbook = load_workbook(filename=filename)
+    run_data_sheet = workbook["Case Study"]
+    run_data_sheet[f"B{row}"].value = archive_routes
+    run_data_sheet[f"C{row}"].value = archive_objective
+    run_data_sheet[f"D{row}"].value = meta_routes
+    run_data_sheet[f"E{row}"].value = meta_time
+    run_data_sheet[f"F{row}"].value = meta_objective
+
+    workbook.save(filename)
+
+
+def run_algorithm(output_row: int, output_filename: str = "Solve Times Summary.xlsx",
+                  data_filename: str = "Model Data.xlsx"):
+    """Imports data and runs the algorithm."""
+    # Load the archive's routes to be compared
+    archive_routes = load_archive_routes()
+
+    # Load data for this run
+    print("Importing Data")
+    run_data = import_data(data_filename)
+    run_settings.set_run_data(run_data)
+
+    # Run the algorithm, while timing it
+    print("Starting Run")
+    start_time = perf_counter()
+    runner = Runner(10000, 3600, use_multiprocessing=False)
+    best_solution = runner.run()
+    end_time = perf_counter()
+
+    # Evaluate the archive's solution
+    eval_results = evaluate_solution(archive_routes)
+
+    print(f"Run time: {end_time - start_time}")
+    if best_solution:
+        print(f"Pretty output:\n{best_solution.pretty_route_output()}")
+        # Save the results
+        save_output(output_filename, row=output_row, archive_routes=json.dumps(archive_routes),
+                    archive_objective=eval_results["penalised_cost"], meta_routes=best_solution.pretty_route_output(),
+                    meta_time=end_time - start_time, meta_objective=best_solution.get_penalised_cost(1))
+    else:
+        print(f"No feasible solution.")
+        save_output(output_filename, row=output_row, archive_routes=json.dumps(archive_routes),
+                    archive_objective=eval_results["penalised_cost"], meta_routes="None",
+                    meta_time=end_time - start_time, meta_objective=0)
+
+
+if __name__ == "__main__":
+    """Runs functions without the DSS GUI."""
+    # Import the data from the archive and other sheets, then save it in the Model Data sheet.
+    # convert_archive("7 Oct 2019 Demands.xlsx", anonymised=True)
+    # Update the travel matrix
+    # update_matrices(False)
+
+    # Call the algorithm to solve the problem
+    run_algorithm(2)
