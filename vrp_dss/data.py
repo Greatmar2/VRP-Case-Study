@@ -750,7 +750,7 @@ def evaluate_archive_routes(output_row: int, output_filename: str = "Solve Times
 if __name__ == "__main__":
     """Runs functions without the DSS GUI."""
     # Import the data from the archive and other sheets, then save it in the Model Data sheet.
-    # convert_archive("7 Oct 2019 Demands.xlsx", anonymised=True)
+    convert_archive("30 Oct 2019 Demands.xlsx", anonymised=True)
     # Update the travel matrix
     # update_matrices(False)
 
