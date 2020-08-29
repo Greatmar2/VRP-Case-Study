@@ -491,10 +491,15 @@ def import_data(filename: str = "Model Data.xlsx") -> Data:
     return archive_data
 
 
-def fetch_archive_routes(filename: str = "Model Data.xlsx") -> Dict[str, List[List[List[int]]]]:
+def import_archive_routes(filename: str = "Model Data.xlsx") -> Dict[str, List[List[List[int]]]]:
     """Retrieves the archive routes from the model data file to compare to the metaheuristic's solution."""
     workbook = load_workbook(filename, read_only=True)
-    return json.loads(workbook["Archive Routes"]["A1"])
+    # Must convert the string keys to integers
+    str_dict: Dict[str, List[List[List[int]]]] = json.loads(workbook["Archive Routes"]["A1"])
+    int_dict: Dict[int, List[List[List[int]]]] = {}
+    for key, value in str_dict.items():
+        int_dict[int(key)] = value
+    return int_dict
 
 
 def pull_travel_data_from_bing(locations: List[PhysicalLocation]) -> Tuple[List[List[float]], List[List[float]]]:
@@ -661,16 +666,18 @@ def update_matrices(use_model_data_sheet: bool = True):
     save_matrix_input_data(locations, distances, times, anonymise=True)
 
 
-def save_output(filename: str, row: int, archive_routes: str, archive_objective: float, meta_routes: str,
-                meta_time: float, meta_objective: float):
+def save_output(filename: str, row: int, archive_routes: str, archive_cost: float, archive_penalty: float,
+                meta_routes: str, meta_time: float, meta_cost: float, meta_penalty: float):
     """Writes metaheuristic output data to the solve times summary sheet."""
     workbook = load_workbook(filename=filename)
     run_data_sheet = workbook["Case Study"]
     run_data_sheet[f"B{row}"].value = archive_routes
-    run_data_sheet[f"C{row}"].value = archive_objective
-    run_data_sheet[f"D{row}"].value = meta_routes
-    run_data_sheet[f"E{row}"].value = meta_time
-    run_data_sheet[f"F{row}"].value = meta_objective
+    run_data_sheet[f"C{row}"].value = archive_cost
+    run_data_sheet[f"D{row}"].value = archive_penalty
+    run_data_sheet[f"E{row}"].value = meta_routes
+    run_data_sheet[f"F{row}"].value = meta_time
+    run_data_sheet[f"G{row}"].value = meta_cost
+    run_data_sheet[f"H{row}"].value = meta_penalty
 
     workbook.save(filename)
 
@@ -701,13 +708,16 @@ def run_algorithm(output_row: int, output_filename: str = "Solve Times Summary.x
         print(f"Pretty output:\n{best_solution.pretty_route_output()}")
         # Save the results
         save_output(output_filename, row=output_row, archive_routes=json.dumps(archive_routes),
-                    archive_objective=eval_results["penalised_cost"], meta_routes=best_solution.pretty_route_output(),
-                    meta_time=end_time - start_time, meta_objective=best_solution.get_penalised_cost(1))
+                    archive_cost=eval_results["cost"],
+                    archive_penalty=eval_results["capacity_penalty"] + eval_results["duration_penalty"],
+                    meta_routes=best_solution.pretty_route_output(), meta_time=end_time - start_time,
+                    meta_cost=best_solution.cost, meta_penalty=best_solution.penalty)
     else:
         print(f"No feasible solution.")
         save_output(output_filename, row=output_row, archive_routes=json.dumps(archive_routes),
-                    archive_objective=eval_results["penalised_cost"], meta_routes="None",
-                    meta_time=end_time - start_time, meta_objective=0)
+                    archive_cost=eval_results["cost"],
+                    archive_penalty=eval_results["capacity_penalty"] + eval_results["duration_penalty"],
+                    meta_routes="None", meta_time=end_time - start_time, meta_cost=0, meta_penalty=0)
 
 
 if __name__ == "__main__":
