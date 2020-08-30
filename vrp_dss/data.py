@@ -377,8 +377,8 @@ def load_archive_routes(filename: str = "Model Data.xlsx") -> Dict[int, List[Lis
             while index < len(route):
                 if route[index][1] == 0:
                     route.pop(index)
-
-                index += 1
+                else:
+                    index += 1
 
         int_dict[int(vehicle_type)] = tour
     return int_dict
@@ -750,11 +750,11 @@ def evaluate_archive_routes(output_row: int, output_filename: str = "Solve Times
 if __name__ == "__main__":
     """Runs functions without the DSS GUI."""
     # Import the data from the archive and other sheets, then save it in the Model Data sheet.
-    convert_archive("30 Oct 2019 Demands.xlsx", anonymised=True)
+    # convert_archive("30 Oct 2019 Demands.xlsx", anonymised=True)
     # Update the travel matrix
     # update_matrices(False)
 
     # Call the algorithm to solve the problem
-    # run_algorithm(2)
+    run_algorithm(3)
     # Evaluate the original solution to the problem
-    # evaluate_archive_routes(2)
+    evaluate_archive_routes(3)
