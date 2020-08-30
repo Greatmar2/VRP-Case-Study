@@ -244,7 +244,7 @@ def find_vehicle(horse: str, trailer: str, carried: int, vehicles: List[Vehicle]
 
                 return Vehicle(horse, closest_type)
 
-            except ValueError:
+            except (ValueError, TypeError):
                 return None
 
 
@@ -261,7 +261,7 @@ def find_route(route_code: str, routes: Dict[int, List[Route]]) -> Optional[Rout
 def read_archive(filename: str, locations: List[PhysicalLocation], vehicles: List[Vehicle],
                  vehicle_types: List[VehicleType]) -> Dict[int, List[Route]]:
     """Reads in the delivery archive and sums up the demand per location and creating route lists."""
-    workbook = load_workbook(filename=filename, read_only=True)
+    workbook = load_workbook(filename=filename, read_only=True, data_only=True)
     deliveries_sheet = workbook["Deliveries"]
     routes: Dict[int, List[Route]] = {}
     row = 2
@@ -294,10 +294,11 @@ def read_archive(filename: str, locations: List[PhysicalLocation], vehicles: Lis
             # route = find_route(code, routes)
             # If not, create a new route
             # if not route:
-            route = Route(code=code, vehicle=find_vehicle(horse=deliveries_sheet[f"J{row}"].value,
-                                                          trailer=deliveries_sheet[f"K{row}"].value,
-                                                          carried=deliveries_sheet[f"P{row}"].value,
-                                                          vehicles=vehicles, vehicle_types=vehicle_types))
+            vehicle = find_vehicle(horse=deliveries_sheet[f"J{row}"].value, trailer=deliveries_sheet[f"K{row}"].value,
+                                   carried=deliveries_sheet[f"P{row}"].value,
+                                   vehicles=vehicles, vehicle_types=vehicle_types)
+            # if vehicle:
+            route = Route(code=code, vehicle=vehicle)
             route.vehicle.vehicle_type.vehicles_used += 1
 
         # Find the location
@@ -720,7 +721,7 @@ def run_algorithm(output_row: int, output_filename: str = "Solve Times Summary.x
     if best_solution:
         print(f"Pretty output:\n{best_solution.pretty_route_output()}")
         # Save the results
-        save_output(output_filename, row=output_row, meta_routes=json.dumps(best_solution.routes_to_dict()),
+        save_output(output_filename, row=output_row, meta_routes=best_solution.routes_to_dict(),
                     meta_routes_pretty=best_solution.pretty_route_output(), meta_time=end_time - start_time,
                     meta_cost=best_solution.cost, meta_penalty=best_solution.penalty)
     else:
@@ -750,7 +751,7 @@ def evaluate_archive_routes(output_row: int, output_filename: str = "Solve Times
 if __name__ == "__main__":
     """Runs functions without the DSS GUI."""
     # Import the data from the archive and other sheets, then save it in the Model Data sheet.
-    # convert_archive("30 Oct 2019 Demands.xlsx", anonymised=True)
+    # convert_archive("6 Nov 2019 Demands.xlsx", anonymised=True)
     # Update the travel matrix
     # update_matrices(False)
 
