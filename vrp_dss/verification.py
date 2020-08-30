@@ -170,7 +170,7 @@ if __name__ == "__main__":
     """Verify the metaheuristic against all mathematical instances."""
     # start_row = 38  # The row to start on
     # end_row = start_row + 1  # The row to stop before
-    rows_to_validate = [53]
+    rows_to_validate = [62]
 
     # for row in range(start_row, end_row):
     for row in rows_to_validate:
