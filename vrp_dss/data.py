@@ -9,7 +9,7 @@ from openpyxl import load_workbook
 from openpyxl.worksheet.worksheet import Worksheet
 
 from bing_key import api_key
-from evaluate import evaluate_solution
+from evaluate import reconstruct_solution
 from main import Runner
 from model import run_settings
 from settings import Data
@@ -700,23 +700,25 @@ def run_algorithm(nonimproving_iterations: int, max_run_time: int, output_row: i
                   output_filename: str = "Solve Times Summary.xlsx",
                   data_filename: str = "Model Data.xlsx"):
     """Imports data and runs the algorithm."""
-    # Load the archive's routes to be compared
-    # archive_routes = load_archive_routes()
-
     # Load data for this run
     print("Importing Data")
     run_data = import_data(data_filename)
     run_settings.set_run_data(run_data)
 
+    # Load the archive's routes to seed the population
+    archive_routes = load_archive_routes(data_filename)
+    archive_solution = reconstruct_solution(archive_routes)
+
     # Run the algorithm, while timing it
     print("Starting Run")
     start_time = perf_counter()
-    runner = Runner(nonimproving_iterations, max_run_time, use_multiprocessing=False)
+    runner = Runner(nonimproving_iterations, max_run_time, use_multiprocessing=False,
+                    seeded_solutions=[archive_solution])
     best_solution = runner.run()
     end_time = perf_counter()
 
     # Evaluate the archive's solution
-    # eval_results = evaluate_solution(archive_routes)
+    # eval_results = reconstruct_solution(archive_routes)
 
     print(f"Run time: {end_time - start_time}")
     if best_solution:
@@ -742,11 +744,11 @@ def evaluate_archive_routes(output_row: int, output_filename: str = "Solve Times
     run_settings.set_run_data(run_data)
 
     # Evaluate the archive's solution
-    eval_results = evaluate_solution(archive_routes)
+    archive_solution = reconstruct_solution(archive_routes)
 
-    save_output(output_filename, row=output_row, archive_routes=json.dumps(archive_routes),
-                archive_cost=eval_results["cost"],
-                archive_penalty=eval_results["capacity_penalty"] + eval_results["duration_penalty"])
+    save_output(output_filename, row=output_row, archive_routes=archive_solution.routes_to_dict(),
+                archive_cost=archive_solution.cost,
+                archive_penalty=archive_solution.penalty)
 
 
 if __name__ == "__main__":
@@ -755,10 +757,10 @@ if __name__ == "__main__":
     # convert_archive("26 Nov 2019 Demands.xlsx", anonymised=True)
     # Update the travel matrix
     # update_matrices(False)
-    row = 9
-    filename = "Model Data - 30 Oct.xlsx"
+    row = 10
+    filename = "Model Data - 7 Oct.xlsx"
 
     # Call the algorithm to solve the problem
-    run_algorithm(2000, 7200, row, data_filename=filename)
+    run_algorithm(2000, 3600, row, data_filename=filename)
     # Evaluate the original solution to the problem
     evaluate_archive_routes(row, data_filename=filename)

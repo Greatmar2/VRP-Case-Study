@@ -3,7 +3,7 @@ from typing import List, Dict, Tuple
 
 from openpyxl import load_workbook
 
-from evaluate import evaluate_solution
+from evaluate import reconstruct_solution
 from main import Runner
 from model import run_settings
 from settings import Data
@@ -170,8 +170,8 @@ if __name__ == "__main__":
     """Verify the metaheuristic against all mathematical instances."""
     # start_row = 38  # The row to start on
     # end_row = start_row + 1  # The row to stop before
-    rows_to_validate = range(25, 62)
-    # rows_to_validate = [4, 6, 10, 15, 19]
+    # rows_to_validate = range(25, 62)
+    rows_to_validate = [28]
 
     # for row in range(start_row, end_row):
     for row in rows_to_validate:
@@ -194,7 +194,7 @@ if __name__ == "__main__":
         print(f"Row {row}: Pretty output:\n{best_solution.pretty_route_output()}")
         print(f"Row {row}: Run time: {end_time - start_time}")
 
-        eval_results = evaluate_solution(exact_solution)
+        eval_results = reconstruct_solution(exact_solution)
 
         write_data_to_sheet(row=row, math_routes=str(exact_solution), math_objective=eval_results["penalised_cost"],
                             meta_routes=best_solution.pretty_route_output(), meta_time=end_time - start_time,
