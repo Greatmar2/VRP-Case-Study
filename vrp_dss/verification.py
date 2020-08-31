@@ -170,7 +170,8 @@ if __name__ == "__main__":
     """Verify the metaheuristic against all mathematical instances."""
     # start_row = 38  # The row to start on
     # end_row = start_row + 1  # The row to stop before
-    rows_to_validate = [62]
+    rows_to_validate = range(25, 62)
+    # rows_to_validate = [4, 6, 10, 15, 19]
 
     # for row in range(start_row, end_row):
     for row in rows_to_validate:
@@ -180,6 +181,7 @@ if __name__ == "__main__":
         # print(exact_solution)
         # print(input_data.repr_all())
         run_settings.set_run_data(input_data)
+        run_settings.RUN_CONFIG.allow_unlimited_fleets = False
         # data_globals.update_globals()
         # model.run_data = input_data
         # model.run_config = Config()
@@ -189,8 +191,8 @@ if __name__ == "__main__":
         best_solution = runner.run()
         end_time = perf_counter()
 
-        print("Pretty output:\n" + best_solution.pretty_route_output())
-        print(f"Run time: {end_time - start_time}")
+        print(f"Row {row}: Pretty output:\n{best_solution.pretty_route_output()}")
+        print(f"Row {row}: Run time: {end_time - start_time}")
 
         eval_results = evaluate_solution(exact_solution)
 

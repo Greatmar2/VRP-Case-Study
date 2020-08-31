@@ -496,7 +496,7 @@ def import_data(filename: str = "Model Data.xlsx") -> Data:
 
         row += 1
 
-    distances, times = import_matrix_input_data()
+    distances, times = import_matrix_input_data(filename=filename)
 
     archive_data = Data(locations=locations, demand=demand, window_start=window_start, window_end=window_end,
                         average_unload_time=average_unload_time, distances=distances, times=times,
@@ -696,7 +696,8 @@ def save_output(filename: str, row: int = None, archive_routes: str = None, arch
     workbook.save(filename)
 
 
-def run_algorithm(output_row: int, output_filename: str = "Solve Times Summary.xlsx",
+def run_algorithm(nonimproving_iterations: int, max_run_time: int, output_row: int,
+                  output_filename: str = "Solve Times Summary.xlsx",
                   data_filename: str = "Model Data.xlsx"):
     """Imports data and runs the algorithm."""
     # Load the archive's routes to be compared
@@ -710,7 +711,7 @@ def run_algorithm(output_row: int, output_filename: str = "Solve Times Summary.x
     # Run the algorithm, while timing it
     print("Starting Run")
     start_time = perf_counter()
-    runner = Runner(10000, 3600, use_multiprocessing=False)
+    runner = Runner(nonimproving_iterations, max_run_time, use_multiprocessing=False)
     best_solution = runner.run()
     end_time = perf_counter()
 
@@ -734,7 +735,7 @@ def evaluate_archive_routes(output_row: int, output_filename: str = "Solve Times
                             data_filename: str = "Model Data.xlsx"):
     """Loads archive's routes and evaluates them."""
     # Load the archive's routes to be compared
-    archive_routes = load_archive_routes()
+    archive_routes = load_archive_routes(filename=data_filename)
 
     # Load data for this run
     run_data = import_data(data_filename)
@@ -751,11 +752,13 @@ def evaluate_archive_routes(output_row: int, output_filename: str = "Solve Times
 if __name__ == "__main__":
     """Runs functions without the DSS GUI."""
     # Import the data from the archive and other sheets, then save it in the Model Data sheet.
-    # convert_archive("6 Nov 2019 Demands.xlsx", anonymised=True)
+    # convert_archive("26 Nov 2019 Demands.xlsx", anonymised=True)
     # Update the travel matrix
     # update_matrices(False)
+    row = 9
+    filename = "Model Data - 30 Oct.xlsx"
 
     # Call the algorithm to solve the problem
-    run_algorithm(3)
+    run_algorithm(2000, 7200, row, data_filename=filename)
     # Evaluate the original solution to the problem
-    evaluate_archive_routes(3)
+    evaluate_archive_routes(row, data_filename=filename)
