@@ -3,7 +3,7 @@ from typing import List, Dict, Tuple
 
 from openpyxl import load_workbook
 
-from evaluate import reconstruct_solution
+from individual import Individual
 from main import Runner
 from model import run_settings
 from settings import Data
@@ -194,7 +194,7 @@ if __name__ == "__main__":
         print(f"Row {row}: Pretty output:\n{best_solution.pretty_route_output()}")
         print(f"Row {row}: Run time: {end_time - start_time}")
 
-        eval_results = reconstruct_solution(exact_solution)
+        eval_results = Individual.reconstruct_solution(exact_solution)
 
         write_data_to_sheet(row=row, math_routes=str(exact_solution), math_objective=eval_results["penalised_cost"],
                             meta_routes=best_solution.pretty_route_output(), meta_time=end_time - start_time,

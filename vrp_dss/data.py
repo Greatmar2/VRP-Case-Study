@@ -9,7 +9,7 @@ from openpyxl import load_workbook
 from openpyxl.worksheet.worksheet import Worksheet
 
 from bing_key import api_key
-from evaluate import reconstruct_solution
+from individual import Individual
 from main import Runner
 from model import run_settings
 from settings import Data
@@ -323,6 +323,10 @@ def read_archive(filename: str, locations: List[PhysicalLocation], vehicles: Lis
             #     raise ValueError("Negative demand.")
             demand = dry_demand + perish_demand + pick_by_line_demand
 
+            # If there is no demand for the stop, set it to one so that it isn't removed.
+            if demand == 0:
+                demand = 1
+
             # Add the demand to the location's overall demand
             location.demand += demand
             # And set the amount delivered on this stop in the route
@@ -358,14 +362,14 @@ def convert_routes_to_lists(routes: Dict[int, List[Route]]) -> Dict[int, List[Li
 #             route = Route()
 
 
-def save_archive_routes(routes: Dict[int, List[Route]], filename: str = "Model Data.xlsx"):
+def save_archive_routes(routes: Dict[int, List[Route]], filename: str):
     """Save the archive routes to the workbook in JSON format."""
     workbook = load_workbook(filename)
     workbook["Archive Routes"]["A1"].value = json.dumps(convert_routes_to_lists(routes))
     workbook.save(filename)
 
 
-def load_archive_routes(filename: str = "Model Data.xlsx") -> Dict[int, List[List[List[int]]]]:
+def load_archive_routes(filename: str) -> Dict[int, List[List[List[int]]]]:
     """Load the archive routes from the workbook in JSON format."""
     workbook = load_workbook(filename, read_only=True)
     # Must convert the string keys to integers
@@ -386,7 +390,7 @@ def load_archive_routes(filename: str = "Model Data.xlsx") -> Dict[int, List[Lis
 
 
 def save_input_data(locations: List[PhysicalLocation], vehicle_types: List[VehicleType],
-                    filename: str = "Model Data.xlsx", anonymised: bool = False):
+                    filename: str, anonymised: bool = False):
     """Saves the information for all locations and vehicle types for the day imported."""
     workbook = load_workbook(filename)
 
@@ -449,8 +453,8 @@ def convert_archive(archive_filename: str, data_filename: str = "Model Data.xlsx
     vehicle_types, vehicles = read_vehicles(types_file=data_filename, types_sheet="Vehicle Types",
                                             vehicles_file="Spar Fleet.xlsx", vehicles_sheet="trucks")
     routes = read_archive(archive_filename, locations, vehicles, vehicle_types)
-    save_input_data(locations, vehicle_types, anonymised=anonymised)
-    save_archive_routes(routes)
+    save_input_data(locations, vehicle_types, filename=data_filename, anonymised=anonymised)
+    save_archive_routes(routes, data_filename)
     # if anonymised:
     #     location_names = [location.anonymous_name for location in locations]
     # else:
@@ -486,13 +490,15 @@ def import_data(filename: str = "Model Data.xlsx") -> Data:
     time_cost: List[float] = []
     pallet_capacity: List[int] = []
     available_vehicles: List[int] = []
+    hired_cost_multiplier: List[float] = []
     row = 2
     while vehicle_sheet[f"A{row}"].value:
         vehicle_types.append(vehicle_sheet[f"A{row}"].value)
         distance_cost.append(vehicle_sheet[f"B{row}"].value)
         time_cost.append(vehicle_sheet[f"C{row}"].value)
         pallet_capacity.append(int(vehicle_sheet[f"D{row}"].value))
-        available_vehicles.append(int(vehicle_sheet[f"G{row}"].value))
+        available_vehicles.append(int(vehicle_sheet[f"E{row}"].value))
+        hired_cost_multiplier.append(vehicle_sheet[f"G{row}"].value)
 
         row += 1
 
@@ -501,7 +507,8 @@ def import_data(filename: str = "Model Data.xlsx") -> Data:
     archive_data = Data(locations=locations, demand=demand, window_start=window_start, window_end=window_end,
                         average_unload_time=average_unload_time, distances=distances, times=times,
                         vehicle_types=vehicle_types, distance_cost=distance_cost, time_cost=time_cost,
-                        pallet_capacity=pallet_capacity, available_vehicles=available_vehicles)
+                        pallet_capacity=pallet_capacity, available_vehicles=available_vehicles,
+                        hired_cost_multiplier=hired_cost_multiplier)
 
     return archive_data
 
@@ -704,10 +711,11 @@ def run_algorithm(nonimproving_iterations: int, max_run_time: int, output_row: i
     print("Importing Data")
     run_data = import_data(data_filename)
     run_settings.set_run_data(run_data)
+    # run_settings.RUN_CONFIG.allow_unlimited_fleets = False
 
     # Load the archive's routes to seed the population
     archive_routes = load_archive_routes(data_filename)
-    archive_solution = reconstruct_solution(archive_routes)
+    archive_solution = Individual.reconstruct_solution(archive_routes)
 
     # Run the algorithm, while timing it
     print("Starting Run")
@@ -744,7 +752,7 @@ def evaluate_archive_routes(output_row: int, output_filename: str = "Solve Times
     run_settings.set_run_data(run_data)
 
     # Evaluate the archive's solution
-    archive_solution = reconstruct_solution(archive_routes)
+    archive_solution = Individual.reconstruct_solution(archive_routes)
 
     save_output(output_filename, row=output_row, archive_routes=archive_solution.routes_to_dict(),
                 archive_cost=archive_solution.cost,
@@ -754,13 +762,13 @@ def evaluate_archive_routes(output_row: int, output_filename: str = "Solve Times
 if __name__ == "__main__":
     """Runs functions without the DSS GUI."""
     # Import the data from the archive and other sheets, then save it in the Model Data sheet.
-    # convert_archive("26 Nov 2019 Demands.xlsx", anonymised=True)
+    # convert_archive("26 Nov 2019 Demands.xlsx", data_filename="Model Data - 26 Nov.xlsx", anonymised=True)
     # Update the travel matrix
     # update_matrices(False)
-    row = 10
-    filename = "Model Data - 7 Oct.xlsx"
 
+    row = 12
+    filename = "Model Data - 7 Oct.xlsx"
     # Call the algorithm to solve the problem
-    run_algorithm(2000, 3600, row, data_filename=filename)
+    run_algorithm(2000, 7200, row, data_filename=filename)
     # Evaluate the original solution to the problem
     evaluate_archive_routes(row, data_filename=filename)
