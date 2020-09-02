@@ -123,13 +123,13 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
-/vrp_dss/6 Nov 2019 Demands.xlsx
-/vrp_dss/7 Oct 2019 Demands.xlsx
-/vrp_dss/30 Oct 2019 Demands.xlsx
-/vrp_dss/SPAR Locations and Schedule.xlsx
-/vrp_dss/bing_key.py
-/vrp_dss/Spar Fleet.xlsx
-/vrp_dss/26 Nov 2019 Demands.xlsx
-/vrp_dss/16 Oct 2019 Demands.xlsx
-/vrp_dss/30 Oct 2019 Demands - cleaned.xlsx
-/vrp_dss/15 Oct 2019 Demands.xlsx
+/vrp_case_study/6 Nov 2019 Demands.xlsx
+/vrp_case_study/7 Oct 2019 Demands.xlsx
+/vrp_case_study/30 Oct 2019 Demands.xlsx
+/vrp_case_study/SPAR Locations and Schedule.xlsx
+/vrp_case_study/bing_key.py
+/vrp_case_study/Spar Fleet.xlsx
+/vrp_case_study/26 Nov 2019 Demands.xlsx
+/vrp_case_study/16 Oct 2019 Demands.xlsx
+/vrp_case_study/30 Oct 2019 Demands - cleaned.xlsx
+/vrp_case_study/15 Oct 2019 Demands.xlsx
