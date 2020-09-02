@@ -134,7 +134,7 @@ class Stop:
         #     raise ValueError("Negative amount delivered!")
 
 
-class Route:
+class ArchiveRoute:
     """Stores information from the archive about a route that a vehicle travelled."""
 
     def __init__(self, code: int, vehicle: Vehicle):
@@ -143,7 +143,7 @@ class Route:
         self.stops: List[Stop] = []
 
     def __eq__(self, other):
-        if isinstance(other, Route):
+        if isinstance(other, ArchiveRoute):
             return other.code == self.code
         if isinstance(other, int):
             return other == self.code
@@ -248,7 +248,7 @@ def find_vehicle(horse: str, trailer: str, carried: int, vehicles: List[Vehicle]
                 return None
 
 
-def find_route(route_code: str, routes: Dict[int, List[Route]]) -> Optional[Route]:
+def find_route(route_code: str, routes: Dict[int, List[ArchiveRoute]]) -> Optional[ArchiveRoute]:
     """Searches the list of routes for one that contains the given route code."""
     for vehicle_type_index, tour in routes.items():
         count = tour.count(route_code)
@@ -259,17 +259,18 @@ def find_route(route_code: str, routes: Dict[int, List[Route]]) -> Optional[Rout
 
 
 def read_archive(filename: str, locations: List[PhysicalLocation], vehicles: List[Vehicle],
-                 vehicle_types: List[VehicleType]) -> Dict[int, List[Route]]:
+                 vehicle_types: List[VehicleType]) -> Dict[int, List[ArchiveRoute]]:
     """Reads in the delivery archive and sums up the demand per location and creating route lists."""
     workbook = load_workbook(filename=filename, read_only=True, data_only=True)
     deliveries_sheet = workbook["Deliveries"]
-    routes: Dict[int, List[Route]] = {}
+    routes: Dict[int, List[ArchiveRoute]] = {}
     row = 2
-    route: Optional[Route] = None
+    route: Optional[ArchiveRoute] = None
     while deliveries_sheet[f"A{row}"].value:
         # Get the route code
         code = deliveries_sheet[f"D{row}"].value
-        # If the route code does not match, then the vehicle is probably finished
+
+        # If the route code does not match, then the route is probably finished
         if route is None or code != route.code:
             if route:
                 # In the archived data, vehicles are sometimes loaded with more than 30 pallets.
@@ -298,7 +299,7 @@ def read_archive(filename: str, locations: List[PhysicalLocation], vehicles: Lis
                                    carried=deliveries_sheet[f"P{row}"].value,
                                    vehicles=vehicles, vehicle_types=vehicle_types)
             # if vehicle:
-            route = Route(code=code, vehicle=vehicle)
+            route = ArchiveRoute(code=code, vehicle=vehicle)
             route.vehicle.vehicle_type.vehicles_used += 1
 
         # Find the location
@@ -323,7 +324,7 @@ def read_archive(filename: str, locations: List[PhysicalLocation], vehicles: Lis
             #     raise ValueError("Negative demand.")
             demand = dry_demand + perish_demand + pick_by_line_demand
 
-            # If there is no demand for the stop, set it to one so that it isn't removed.
+            # If there is no demand for the stop, set it to one so that it isn't ignored.
             if demand == 0:
                 demand = 1
 
@@ -343,7 +344,7 @@ def read_archive(filename: str, locations: List[PhysicalLocation], vehicles: Lis
     return routes
 
 
-def convert_routes_to_lists(routes: Dict[int, List[Route]]) -> Dict[int, List[List[Tuple[int, int]]]]:
+def convert_routes_to_lists(routes: Dict[int, List[ArchiveRoute]]) -> Dict[int, List[List[Tuple[int, int]]]]:
     """Converts a dict of routes to lists of tuples."""
     lists: Dict[int, List[List[Tuple[int, int]]]] = {}
     for vehicle_type_index, tour in routes.items():
@@ -362,7 +363,7 @@ def convert_routes_to_lists(routes: Dict[int, List[Route]]) -> Dict[int, List[Li
 #             route = Route()
 
 
-def save_archive_routes(routes: Dict[int, List[Route]], filename: str):
+def save_archive_routes(routes: Dict[int, List[ArchiveRoute]], filename: str):
     """Save the archive routes to the workbook in JSON format."""
     workbook = load_workbook(filename)
     workbook["Archive Routes"]["A1"].value = json.dumps(convert_routes_to_lists(routes))
@@ -703,9 +704,8 @@ def save_output(filename: str, row: int = None, archive_routes: str = None, arch
     workbook.save(filename)
 
 
-def run_algorithm(nonimproving_iterations: int, max_run_time: int, output_row: int,
-                  output_filename: str = "Solve Times Summary.xlsx",
-                  data_filename: str = "Model Data.xlsx"):
+def run_algorithm(nonimproving_iterations: int, max_run_time: int, seeded: bool, output_row: int,
+                  output_filename: str = "Solve Times Summary.xlsx", data_filename: str = "Model Data.xlsx"):
     """Imports data and runs the algorithm."""
     # Load data for this run
     print("Importing Data")
@@ -713,15 +713,22 @@ def run_algorithm(nonimproving_iterations: int, max_run_time: int, output_row: i
     run_settings.set_run_data(run_data)
     # run_settings.RUN_CONFIG.allow_unlimited_fleets = False
 
-    # Load the archive's routes to seed the population
-    archive_routes = load_archive_routes(data_filename)
-    archive_solution = Individual.reconstruct_solution(archive_routes)
-
     # Run the algorithm, while timing it
     print("Starting Run")
     start_time = perf_counter()
-    runner = Runner(nonimproving_iterations, max_run_time, use_multiprocessing=False,
-                    seeded_solutions=[archive_solution])
+    if seeded:
+        # Load the archive's routes to seed the population
+        archive_routes = load_archive_routes(data_filename)
+        archive_solution = Individual.reconstruct_solution(archive_routes)
+
+        save_output(output_filename, row=output_row, archive_routes=archive_solution.routes_to_dict(),
+                    archive_cost=archive_solution.cost,
+                    archive_penalty=archive_solution.penalty)
+
+        runner = Runner(nonimproving_iterations, max_run_time, use_multiprocessing=False,
+                        seeded_solutions=[archive_solution])
+    else:
+        runner = Runner(nonimproving_iterations, max_run_time, use_multiprocessing=False)
     best_solution = runner.run()
     end_time = perf_counter()
 
@@ -762,13 +769,13 @@ def evaluate_archive_routes(output_row: int, output_filename: str = "Solve Times
 if __name__ == "__main__":
     """Runs functions without the DSS GUI."""
     # Import the data from the archive and other sheets, then save it in the Model Data sheet.
-    # convert_archive("26 Nov 2019 Demands.xlsx", data_filename="Model Data - 26 Nov.xlsx", anonymised=True)
+    # convert_archive("7 Oct 2019 Demands.xlsx", data_filename="Model Data - 7 Oct.xlsx", anonymised=True)
     # Update the travel matrix
     # update_matrices(False)
 
-    row = 12
-    filename = "Model Data - 7 Oct.xlsx"
-    # Call the algorithm to solve the problem
-    run_algorithm(2000, 7200, row, data_filename=filename)
+    row = 18
+    filename = "Model Data - 26 Nov.xlsx"
     # Evaluate the original solution to the problem
-    evaluate_archive_routes(row, data_filename=filename)
+    # evaluate_archive_routes(output_row=row, data_filename=filename)
+    # Call the algorithm to solve the problem
+    run_algorithm(nonimproving_iterations=2500, max_run_time=7200, seeded=True, output_row=row, data_filename=filename)
