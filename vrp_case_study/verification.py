@@ -73,9 +73,9 @@ def extract_data_from_output(math_output: str) -> Tuple[Data, Dict[int, List[Lis
     time_cost: List[float] = []
     pallet_capacity: List[int] = []
     available_vehicles: List[int] = []
-    while output_lines[current_line] and output_lines[current_line].count("Vehicle ") == 1:
+    while output_lines[current_line] and output_lines[current_line].count("ArcVehicle ") == 1:
         # print([f"{num}: {word}" for num, word in enumerate(words)])
-        # ['0: Vehicle', '1: SP1', '2: is', '3: a', '4: 11', '5: metre', '6: with', '7: capacity', '8: 30,',
+        # ['0: ArcVehicle', '1: SP1', '2: is', '3: a', '4: 11', '5: metre', '6: with', '7: capacity', '8: 30,',
         # '9: distance', '10: cost', '11: 0.796243095,', '12: and', '13: time', '14: cost', '15: 10.888817567']
         # Find the vehicle type name
         line = output_lines[current_line]
@@ -115,10 +115,10 @@ def extract_data_from_output(math_output: str) -> Tuple[Data, Dict[int, List[Lis
     # Iterate across solution lines use dictionary structure to compile a list of which vehicles travel where and to 
     # deliver how much, before compiling this into routes
     all_moves: Dict[str, Dict[str, Dict[str, str]]] = {}
-    while output_lines[current_line] and output_lines[current_line].count("Vehicle ") == 1:
+    while output_lines[current_line] and output_lines[current_line].count("ArcVehicle ") == 1:
         words = output_lines[current_line].split()
         # print([f"{num}: {word}" for num, word in enumerate(words)])
-        # ['0: Vehicle', '1: SP1', '2: travels', '3: from', '4: Depot', '5: to', '6: 7', '7: to', '8: deliver', '9: 5', 
+        # ['0: ArcVehicle', '1: SP1', '2: travels', '3: from', '4: Depot', '5: to', '6: 7', '7: to', '8: deliver', '9: 5',
         # '10: pallets.', '11: Expected', '12: unload', '13: start', '14: time', '15: is', '16: 5.084413751']
         vehicle = words[1]
         if not all_moves.get(vehicle):
