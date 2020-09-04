@@ -538,11 +538,12 @@ class ArcRoute:
         workbook.save(filename)
 
     @staticmethod
-    def load_archive_routes(filename: str) -> Dict[int, List[List[List[int]]]]:
+    def load_archive_routes(filename: str, sheetname: str = "Archive Routes", cell: str = "A1") -> Dict[
+        int, List[List[List[int]]]]:
         """Load the archive routes from the workbook in JSON format."""
         workbook = load_workbook(filename, read_only=True)
         # Must convert the string keys to integers
-        str_dict: Dict[str, List[List[List[int]]]] = json.loads(workbook["Archive Routes"]["A1"].value)
+        str_dict: Dict[str, List[List[List[int]]]] = json.loads(workbook[sheetname][cell].value)
         int_dict: Dict[int, List[List[List[int]]]] = {}
         for vehicle_type, tour in str_dict.items():
             # Also remove stops that don't make any deliveries:
@@ -692,7 +693,7 @@ def import_data(filename: str = "Model Data.xlsx") -> Data:
         row += 1
 
     # Read in the vehicle data
-    vehicle_sheet = data_workbook["ArcVehicle Types"]
+    vehicle_sheet = data_workbook["Vehicle Types"]
     vehicle_types: List[str] = []
     distance_cost: List[float] = []
     time_cost: List[float] = []
@@ -748,7 +749,8 @@ def save_output(filename: str, row: int = None, archive_routes: str = None, arch
 
 
 def run_algorithm(nonimproving_iterations: int, max_run_time: int, seeded: bool, output_row: int,
-                  output_filename: str = "Solve Times Summary.xlsx", data_filename: str = "Model Data.xlsx"):
+                  output_filename: str = "Solve Times Summary.xlsx", data_filename: str = "Model Data.xlsx",
+                  seed_filname: str = None, seed_sheetname: str = None, seed_cells: List[str] = None):
     """Imports data and runs the algorithm."""
     # Load data for this run
     print("Importing Data")
@@ -760,16 +762,26 @@ def run_algorithm(nonimproving_iterations: int, max_run_time: int, seeded: bool,
     print("Starting Run")
     start_time = perf_counter()
     if seeded:
+        seeded_solutions = []
+
+        # If provided with extra seeds, then use those as well as the archive solution
+        if seed_filname and seed_sheetname and seed_cells:
+            seeded_solutions = [
+                Individual.reconstruct_solution(
+                    ArcRoute.load_archive_routes(seed_filname, seed_sheetname, solution_cell), allow_completion=True)
+                for solution_cell in seed_cells]
+
         # Load the archive's routes to seed the population
         archive_routes = ArcRoute.load_archive_routes(data_filename)
-        archive_solution = Individual.reconstruct_solution(archive_routes)
+        archive_solution = Individual.reconstruct_solution(archive_routes, allow_completion=False)
+        seeded_solutions.append(archive_solution)
 
         save_output(output_filename, row=output_row, archive_routes=archive_solution.routes_to_dict(),
                     archive_cost=archive_solution.cost,
                     archive_penalty=archive_solution.penalty)
 
         runner = Runner(nonimproving_iterations, max_run_time, use_multiprocessing=False,
-                        seeded_solutions=[archive_solution])
+                        seeded_solutions=seeded_solutions)
     else:
         runner = Runner(nonimproving_iterations, max_run_time, use_multiprocessing=False)
     best_solution = runner.run()
@@ -802,7 +814,7 @@ def evaluate_archive_routes(output_row: int, output_filename: str = "Solve Times
     run_settings.set_run_data(run_data)
 
     # Evaluate the archive's solution
-    archive_solution = Individual.reconstruct_solution(archive_routes)
+    archive_solution = Individual.reconstruct_solution(archive_routes, allow_completion=False)
 
     save_output(output_filename, row=output_row, archive_routes=archive_solution.routes_to_dict(),
                 archive_cost=archive_solution.cost,
@@ -812,16 +824,23 @@ def evaluate_archive_routes(output_row: int, output_filename: str = "Solve Times
 if __name__ == "__main__":
     """Runs functions without the DSS GUI."""
     # Import the data from the archive and other sheets, then save it in the Model Data sheet.
-    # convert_archive("26 Nov 2019 Demands.xlsx", data_filename="Model Data - 26 Nov.xlsx", anonymised=True)
+    # convert_archive("16 Oct 2019 Demands.xlsx", data_filename="Model Data - 16 Oct.xlsx", anonymised=True)
     # Convert the archive routes to demand data
-    # verify_routes_demand("Model Data - 26 Nov.xlsx")
+    # verify_routes_demand("Model Data - 16 Oct.xlsx")
     # Update the travel matrix
     # ArcLocation.update_matrices(filename="SPAR Locations and Schedule.xlsx", sheetname="Store Locations")
 
-    # output_row = 18
-    # data_filename = "Model Data - 26 Nov.xlsx"
+    output_row = 28
+    data_filename = "Model Data - 26 Nov.xlsx"
     # Evaluate the original solution to the problem
-    # evaluate_archive_routes(output_row=row, data_filename=filename)
+    evaluate_archive_routes(output_row=output_row, data_filename=data_filename)
     # Call the algorithm to solve the problem
+    # run_algorithm(nonimproving_iterations=2500, max_run_time=7200, seeded=False, output_row=output_row,
+    #               data_filename=data_filename)
+    # Seed algorithm with archive solution
     # run_algorithm(nonimproving_iterations=2500, max_run_time=7200, seeded=True, output_row=output_row,
     #               data_filename=data_filename)
+    # Call the algorithm to solve the problem with more seeds.
+    # run_algorithm(nonimproving_iterations=2500, max_run_time=7200, seeded=True, output_row=output_row,
+    #               data_filename=data_filename, seed_filname="Solve Times Summary.xlsx", seed_sheetname="Case Study",
+    #               seed_cells=["E17"])
