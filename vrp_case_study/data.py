@@ -722,7 +722,8 @@ def import_data(filename: str = "Model Data.xlsx") -> Data:
     return archive_data
 
 
-def save_output(filename: str, row: int = None, archive_routes: str = None, archive_cost: float = None,
+def save_output(filename: str, row: int = None, archive_routes: str = None, archive_routes_pretty: str = None,
+                archive_cost: float = None,
                 archive_penalty: float = None, meta_routes: str = None, meta_routes_pretty: str = None,
                 meta_time: float = None, meta_cost: float = None, meta_penalty: float = None):
     """Writes metaheuristic output data to the solve times summary sheet."""
@@ -731,19 +732,21 @@ def save_output(filename: str, row: int = None, archive_routes: str = None, arch
     if archive_routes:
         run_data_sheet[f"B{row}"].value = archive_routes
     if archive_cost:
-        run_data_sheet[f"C{row}"].value = archive_cost
+        run_data_sheet[f"C{row}"].value = archive_routes_pretty
+    if archive_cost:
+        run_data_sheet[f"D{row}"].value = archive_cost
     if archive_penalty:
-        run_data_sheet[f"D{row}"].value = archive_penalty
+        run_data_sheet[f"E{row}"].value = archive_penalty
     if meta_routes:
-        run_data_sheet[f"E{row}"].value = meta_routes
+        run_data_sheet[f"F{row}"].value = meta_routes
     if meta_routes_pretty:
-        run_data_sheet[f"F{row}"].value = meta_routes_pretty
+        run_data_sheet[f"G{row}"].value = meta_routes_pretty
     if meta_time:
-        run_data_sheet[f"G{row}"].value = meta_time
+        run_data_sheet[f"H{row}"].value = meta_time
     if meta_cost:
-        run_data_sheet[f"H{row}"].value = meta_cost
+        run_data_sheet[f"I{row}"].value = meta_cost
     if meta_penalty:
-        run_data_sheet[f"I{row}"].value = meta_penalty
+        run_data_sheet[f"J{row}"].value = meta_penalty
 
     workbook.save(filename)
 
@@ -817,8 +820,67 @@ def evaluate_archive_routes(output_row: int, output_filename: str = "Solve Times
     archive_solution = Individual.reconstruct_solution(archive_routes, allow_completion=False)
 
     save_output(output_filename, row=output_row, archive_routes=archive_solution.routes_to_dict(),
-                archive_cost=archive_solution.cost,
-                archive_penalty=archive_solution.penalty)
+                archive_cost=archive_solution.cost, archive_penalty=archive_solution.penalty)
+
+
+def tabulate_routes(data_filename: str, route_filename: str, sheet: str, cell: str):
+    """Converts the archived routes from JSON format to a LaTeX table (which is printed in system out)."""
+    # Example format template to follow:
+    # \begin{table}[]
+    # \begin{tabular}{ccrrr}
+    # \hline
+    # \textbf{Route}          & \textbf{Loads}      & \textbf{Distance} & \textbf{Time} & \textbf{Cost} \\ \hline
+    # \multicolumn{5}{c}{Rigid Body (16 pallet capacity)}                                               \\ \hline
+    # 154-S                   & 14                  &                   &               &               \\ \hline
+    # \multicolumn{5}{c}{8 Metre (22 pallet capacity)}                                                  \\ \hline
+    # 2-A $\leftarrow$ 119-O & 12 $\leftarrow$ 10 &                   &               &               \\
+    # 24-B $\leftarrow$ 25-C & 8 $\leftarrow$ 14  &                   &               &
+    # \end{tabular}
+    # \end{table}
+
+    # Load the routes and data
+    routes = ArcRoute.load_archive_routes(route_filename, sheet, cell)
+    run_data = import_data(data_filename)
+    run_settings.set_run_data(run_data)
+
+    # Evaluate the solution
+    solution = Individual.reconstruct_solution(routes, allow_completion=False)
+
+    # Now create the table output
+    latex_table = "\\begin{table}[]\n" \
+                  "\\begin{tabular}{ccrrr}\n" \
+                  "\\hline\n" \
+                  "\\textbf{Route}& \\textbf{Loads}& \\textbf{Distance}& \\textbf{Time}& \\textbf{Cost} \\\\ \\hline\n"
+
+    from data_objects import data_globals
+
+    for vehicle_type in data_globals.ALL_VEHICLE_TYPES:
+        # If there are routes for this vehicle type, then add it
+        if solution.routes.get(vehicle_type.data_index):
+            latex_table += "\\multicolumn{5}{c}{" + vehicle_type.name + " (" + str(vehicle_type.capacity) + \
+                           " pallet capacity)} \\\\ \\hline\n"
+            vehicle_routes = solution.routes[vehicle_type.data_index]
+
+            for route in vehicle_routes:
+                route_str = " $\\rightarrow$ ".join([stop.name for stop in route.sequence])
+                loads_str = " $\\rightarrow$ ".join([str(stop.serviced_demand) for stop in route.sequence])
+                latex_table += f"{route_str} & {loads_str} & {format_number_for_latex(route.distance_travelled)} & " \
+                               f"{format_number_for_latex(route.total_time)} & " \
+                               f"{format_number_for_latex(route.cost)} \\\\ \n"
+
+            latex_table += "\\hline\n"
+
+    latex_table += "\\end{tabular}\n" \
+                   "\\end{table}"
+
+    print(latex_table)
+
+
+def format_number_for_latex(number: Union[float, int], rounding: int = 2):
+    """Rounds off a number, then adds a half-space for every three significant digits before the decimal."""
+    number = round(number, rounding)
+    number_str = f"{number:,}".replace(",", "\\,")
+    return number_str
 
 
 if __name__ == "__main__":
@@ -830,10 +892,10 @@ if __name__ == "__main__":
     # Update the travel matrix
     # ArcLocation.update_matrices(filename="SPAR Locations and Schedule.xlsx", sheetname="Store Locations")
 
-    output_row = 28
-    data_filename = "Model Data - 26 Nov.xlsx"
+    # output_row = 28
+    # data_filename = "Model Data - 26 Nov.xlsx"
     # Evaluate the original solution to the problem
-    evaluate_archive_routes(output_row=output_row, data_filename=data_filename)
+    # evaluate_archive_routes(output_row=output_row, data_filename=data_filename)
     # Call the algorithm to solve the problem
     # run_algorithm(nonimproving_iterations=2500, max_run_time=7200, seeded=False, output_row=output_row,
     #               data_filename=data_filename)
@@ -844,3 +906,7 @@ if __name__ == "__main__":
     # run_algorithm(nonimproving_iterations=2500, max_run_time=7200, seeded=True, output_row=output_row,
     #               data_filename=data_filename, seed_filname="Solve Times Summary.xlsx", seed_sheetname="Case Study",
     #               seed_cells=["E17"])
+
+    # Convert solution to LaTeX table
+    tabulate_routes(data_filename="Model Data - 26 Nov.xlsx", route_filename="Solve Times Summary.xlsx",
+                    sheet="Case Study", cell="F27")
