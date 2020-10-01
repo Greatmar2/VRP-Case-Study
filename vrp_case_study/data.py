@@ -892,21 +892,21 @@ if __name__ == "__main__":
     # Update the travel matrix
     # ArcLocation.update_matrices(filename="SPAR Locations and Schedule.xlsx", sheetname="Store Locations")
 
-    output_row = 30
-    data_filename = "Model Data - 26 Nov.xlsx"
+    # output_row = 30
+    # data_filename = "Model Data - 26 Nov.xlsx"
     # Evaluate the original solution to the problem
     # evaluate_archive_routes(output_row=output_row, data_filename=data_filename)
     # Call the algorithm to solve the problem
     # run_algorithm(nonimproving_iterations=2500, max_run_time=7200, seeded=False, output_row=output_row,
     #               data_filename=data_filename)
     # Seed algorithm with archive solution
-    run_algorithm(nonimproving_iterations=2500, max_run_time=7200, seeded=True, output_row=output_row,
-                  data_filename=data_filename)
+    # run_algorithm(nonimproving_iterations=2500, max_run_time=7200, seeded=True, output_row=output_row,
+    #               data_filename=data_filename)
     # Call the algorithm to solve the problem with more seeds.
     # run_algorithm(nonimproving_iterations=2500, max_run_time=7200, seeded=True, output_row=output_row,
     #               data_filename=data_filename, seed_filname="Solve Times Summary.xlsx", seed_sheetname="Case Study",
     #               seed_cells=["E17"])
 
     # Convert solution to LaTeX table
-    # tabulate_routes(data_filename="Model Data - 26 Nov.xlsx", route_filename="Solve Times Summary.xlsx",
-    #                 sheet="Case Study", cell="F27")
+    tabulate_routes(data_filename="Model Data - 26 Nov.xlsx", route_filename="Solve Times Summary.xlsx",
+                    sheet="Case Study", cell="F27")
