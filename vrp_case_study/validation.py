@@ -723,14 +723,14 @@ def import_data(filename: str = "Model Data.xlsx") -> Data:
 
 
 def save_output(filename: str, row: int = None, archive_routes: str = None, archive_routes_pretty: str = None,
-                archive_cost: float = None,
-                archive_penalty: float = None, meta_routes: str = None, meta_routes_pretty: str = None,
-                meta_time: float = None, meta_cost: float = None, meta_penalty: float = None):
+                archive_cost: float = None, archive_penalty: float = None, meta_routes: str = None,
+                meta_routes_pretty: str = None, meta_time: float = None, meta_cost: float = None,
+                meta_penalty: float = None):
     """Writes metaheuristic output data to the solve times summary sheet."""
     workbook = load_workbook(filename=filename)
     run_data_sheet = workbook["Case Study"]
     if archive_routes:
-        run_data_sheet[f"B{row}"].value = archive_routes
+        run_data_sheet[f"B{row}"].value = json.dumps(archive_routes)
     if archive_cost:
         run_data_sheet[f"C{row}"].value = archive_routes_pretty
     if archive_cost:
@@ -738,7 +738,7 @@ def save_output(filename: str, row: int = None, archive_routes: str = None, arch
     if archive_penalty:
         run_data_sheet[f"E{row}"].value = archive_penalty
     if meta_routes:
-        run_data_sheet[f"F{row}"].value = meta_routes
+        run_data_sheet[f"F{row}"].value = json.dumps(meta_routes)
     if meta_routes_pretty:
         run_data_sheet[f"G{row}"].value = meta_routes_pretty
     if meta_time:
@@ -909,4 +909,4 @@ if __name__ == "__main__":
 
     # Convert solution to LaTeX table
     tabulate_routes(data_filename="Model Data - 26 Nov.xlsx", route_filename="Solve Times Summary.xlsx",
-                    sheet="Case Study", cell="F27")
+                    sheet="Case Study", cell="F30")

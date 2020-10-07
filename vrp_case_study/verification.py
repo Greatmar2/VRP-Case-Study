@@ -1,22 +1,25 @@
+import json
 from time import perf_counter
-from typing import List, Dict, Tuple
+from typing import List, Dict, Tuple, Union, Any
 
 from openpyxl import load_workbook
 
+from data_objects import Location, VehicleType, data_globals
 from individual import Individual
 from main import Runner
 from model import run_settings
 from settings import Data
+from validation import ArcRoute
 
 
-def get_data_from_sheet(row: int) -> str:
+def get_exact_output_data_from_sheet(row: int) -> str:
     """Gets the output text file data from a certain row on the solve times summary sheet."""
     workbook = load_workbook(filename="Solve Times Summary.xlsx", read_only=True)
     run_data_sheet = workbook["Run Data"]
     return run_data_sheet[f"H{row}"].value
 
 
-def extract_data_from_output(math_output: str) -> Tuple[Data, Dict[int, List[List[Tuple[int, int]]]]]:
+def extract_data_from_output(math_output: str) -> Tuple[Data, Dict[int, List[List[Union[Tuple[int, int], List[int]]]]]]:
     """Takes the mathematical output text and converts it to input data for the metaheuristic."""
     output_lines = math_output.split("\n")
     # Start after the "Input:" line
@@ -46,6 +49,7 @@ def extract_data_from_output(math_output: str) -> Tuple[Data, Dict[int, List[Lis
 
         current_line += 1
 
+    # Add the depot return
     locations.append("DepotReturn")
     demands.append(0)
     window_starts.append(0)
@@ -73,9 +77,9 @@ def extract_data_from_output(math_output: str) -> Tuple[Data, Dict[int, List[Lis
     time_cost: List[float] = []
     pallet_capacity: List[int] = []
     available_vehicles: List[int] = []
-    while output_lines[current_line] and output_lines[current_line].count("ArcVehicle ") == 1:
+    while output_lines[current_line] and output_lines[current_line].count("Vehicle ") == 1:
         # print([f"{num}: {word}" for num, word in enumerate(words)])
-        # ['0: ArcVehicle', '1: SP1', '2: is', '3: a', '4: 11', '5: metre', '6: with', '7: capacity', '8: 30,',
+        # ['0: Vehicle', '1: SP1', '2: is', '3: a', '4: 11', '5: metre', '6: with', '7: capacity', '8: 30,',
         # '9: distance', '10: cost', '11: 0.796243095,', '12: and', '13: time', '14: cost', '15: 10.888817567']
         # Find the vehicle type name
         line = output_lines[current_line]
@@ -115,10 +119,10 @@ def extract_data_from_output(math_output: str) -> Tuple[Data, Dict[int, List[Lis
     # Iterate across solution lines use dictionary structure to compile a list of which vehicles travel where and to 
     # deliver how much, before compiling this into routes
     all_moves: Dict[str, Dict[str, Dict[str, str]]] = {}
-    while output_lines[current_line] and output_lines[current_line].count("ArcVehicle ") == 1:
+    while output_lines[current_line] and output_lines[current_line].count("Vehicle ") == 1:
         words = output_lines[current_line].split()
         # print([f"{num}: {word}" for num, word in enumerate(words)])
-        # ['0: ArcVehicle', '1: SP1', '2: travels', '3: from', '4: Depot', '5: to', '6: 7', '7: to', '8: deliver', '9: 5',
+        # ['0: Vehicle', '1: SP1', '2: travels', '3: from', '4: Depot', '5: to', '6: 7', '7: to', '8: deliver', '9: 5',
         # '10: pallets.', '11: Expected', '12: unload', '13: start', '14: time', '15: is', '16: 5.084413751']
         vehicle = words[1]
         if not all_moves.get(vehicle):
@@ -151,51 +155,184 @@ def extract_data_from_output(math_output: str) -> Tuple[Data, Dict[int, List[Lis
     return run_data, math_solution
 
 
-def write_data_to_sheet(row: int, math_routes: str, math_objective: float, meta_routes: str, meta_time: float,
-                        meta_objective: float):
+def write_data_to_sheet(row: int = None, exact_routes: Dict[int, List[List[List[int]]]] = None,
+                        exact_objective: float = None, meta_routes: Dict[int, List[List[List[int]]]] = None,
+                        pretty_meta_routes: str = None, meta_time: float = None, meta_objective: float = None,
+                        simple_exact_objective: float = None, simple_meta_objective: float = None):
     """Writes metaheuristic output data to the solve times summary sheet."""
     filename = "Solve Times Summary.xlsx"
     workbook = load_workbook(filename=filename)
     run_data_sheet = workbook["Run Data"]
-    run_data_sheet[f"J{row}"].value = math_routes
-    run_data_sheet[f"K{row}"].value = math_objective
-    run_data_sheet[f"N{row}"].value = meta_routes
-    run_data_sheet[f"O{row}"].value = meta_time
-    run_data_sheet[f"P{row}"].value = meta_objective
+
+    if exact_routes:
+        run_data_sheet[f"J{row}"].value = json.dumps(exact_routes)
+    if exact_objective:
+        run_data_sheet[f"K{row}"].value = exact_objective
+    if meta_routes:
+        run_data_sheet[f"N{row}"].value = json.dumps(meta_routes)
+    if pretty_meta_routes:
+        run_data_sheet[f"O{row}"].value = pretty_meta_routes
+    if meta_time:
+        run_data_sheet[f"P{row}"].value = meta_time
+    if meta_objective:
+        run_data_sheet[f"Q{row}"].value = meta_objective
+    if simple_exact_objective:
+        run_data_sheet[f"U{row}"].value = simple_exact_objective
+    if simple_meta_objective:
+        run_data_sheet[f"V{row}"].value = simple_meta_objective
 
     workbook.save(filename)
+
+
+def apply_verification_settings():
+    """Applies the input data for the validation to the settings."""
+    run_settings.set_run_data(input_data)
+    run_settings.RUN_CONFIG.allow_unlimited_fleets = False
+    run_settings.RUN_CONFIG.consider_rest_time = False
+    run_settings.RUN_CONFIG.return_to_depot_before = 32
+
+
+def evaluate_solution_simply(solution: Dict[int, List[List[Union[Tuple[int, int], List[int]]]]]) -> float:
+    """Evaluates a solution purely based on the cost of distance and time spent travelling."""
+    # Grab some variables from the settings so they don't need to be repeatedly retrieved
+    depot = data_globals.DEPOT
+
+    # Initialise the overall cost value
+    cost: float = 0
+
+    # Loop through each tour
+    for vehicle_type_index, tour in solution.items():
+        vehicle_type = VehicleType(vehicle_type_index)
+        # Track the distance and time of routes in this tour
+        distance, time = 0.0, 0.0
+
+        # Loop through each route in the tour
+        for route in tour:
+            # The distance from the first stop to the depot must be added
+            previous_stop = depot
+            # Loop through each stop in the route
+            for stop_index, stop_data in enumerate(route):
+                stop = Location(stop_data[0], stop_data[1])
+
+                # Add the distance between this and the previous stop
+                distance += previous_stop.travel_distances[stop.data_index]
+                time += previous_stop.travel_times[stop.data_index]
+
+                # The distance from the last stop to the depot must be added
+                if stop_index == len(route) - 1:
+                    distance += stop.travel_distances[depot.data_index]
+                    time += stop.travel_times[depot.data_index]
+
+                previous_stop = stop
+
+        cost += (vehicle_type.distance_cost * distance) + (vehicle_type.time_cost * time)
+
+    return cost
+
+
+def verify_constraints(solution: Dict[int, List[List[Union[Tuple[int, int], List[int]]]]]):
+    """Verify that the given solution meets all the mathematical model's constraints."""
+    constraints = {
+        "ctDemand": True,
+        "ctLoad": True,
+        "ctReturnEmpty": True,
+        "ctDepart": True,
+        "ctReturn": True,
+        "ctDepartOnce": True,
+        "ctNoReturn": True,
+        "ctNoDepart": True,
+        "restrictService": True,
+        "ctTravel": True,
+        "ctWindowStart": True,
+        "ctWindowEnd": True,
+        "ctWindowTravelTime": True,
+        "ctTravelTimeGreater": True
+    }
+
+    # Prepare the parameters and variables
+    # Parameters
+    locations = [{"name": location, "index": index} for index, location in enumerate(run_settings.RUN_DATA.locations)]
+    location_indices = [location["index"] for location in locations]
+    customers = locations[1:-1]
+    customer_indices = [customer["index"] for customer in customers]
+    vehicles = [{"name": f"{vehicle_type.name}{index}", "index": index, "type": vehicle_type, "type_index": type_index}
+                for type_index, vehicle_type in enumerate(data_globals.ALL_VEHICLE_TYPES)
+                for index in range(1, vehicle_type.available_vehicles + 1)]
+    vehicle_indices = [vehicle["type_index"] for vehicle in vehicles]
+
+    distances = run_settings.RUN_DATA.distances
+    times = run_settings.RUN_DATA.times
+    distance_cost = run_settings.RUN_DATA.distance_cost
+    time_cost = run_settings.RUN_DATA.time_cost
+    vehicle_types = run_settings.RUN_DATA.vehicle_types
+    pallet_capacity = run_settings.RUN_DATA.pallet_capacity
+    demand = run_settings.RUN_DATA.demand
+    window_start = run_settings.RUN_DATA.window_start
+    window_end = run_settings.RUN_DATA.window_end
+    average_unload_time = run_settings.RUN_DATA.average_unload_time
+
+    travel_time_const_matrix: List[List[float]] = [
+        [window_end[i] + (demand[i] * average_unload_time[i]) + times for j in location_indices] for i in
+        location_indices]
+    travel_time_const = 24
+
+    for j in customers:
+        constraints["ctDemand"] = sum()
+
+
+def check_all_true(to_check: Dict[Any, bool]) -> bool:
+    """Checks that all values in the dictionary are true."""
+    return all(value for value in to_check.values())
 
 
 if __name__ == "__main__":
     """Verify the metaheuristic against all mathematical instances."""
     # start_row = 38  # The row to start on
     # end_row = start_row + 1  # The row to stop before
-    # rows_to_validate = range(25, 62)
-    rows_to_validate = [28]
+    rows_to_validate = range(4, 5)
+    # rows_to_validate = [28]
+    run_metaheuristic = False
+    do_simple_evaluation = False
+    verify_constraints_met = True
 
-    # for row in range(start_row, end_row):
     for row in rows_to_validate:
-        text_data = get_data_from_sheet(row)
-        input_data, exact_solution = extract_data_from_output(text_data)
-        # print(input_data)
-        # print(exact_solution)
-        # print(input_data.repr_all())
-        run_settings.set_run_data(input_data)
-        run_settings.RUN_CONFIG.allow_unlimited_fleets = False
-        # data_globals.update_globals()
-        # model.run_data = input_data
-        # model.run_config = Config()
+        if run_metaheuristic:
+            # Extract the exact data and run the metaheuristic to find a solution and evaluate the exact solution
+            text_data = get_exact_output_data_from_sheet(row)
+            input_data, exact_solution = extract_data_from_output(text_data)
+            apply_verification_settings()
 
-        start_time = perf_counter()
-        runner = Runner(5000, -1, use_multiprocessing=False)
-        best_solution = runner.run()
-        end_time = perf_counter()
+            start_time = perf_counter()
+            runner = Runner(5000, -1, use_multiprocessing=False)
+            best_solution: Individual = runner.run()
+            end_time = perf_counter()
 
-        print(f"Row {row}: Pretty output:\n{best_solution.pretty_route_output()}")
-        print(f"Row {row}: Run time: {end_time - start_time}")
+            # print(f"Row {row}: Pretty output:\n{best_solution.pretty_route_output()}")
+            print(f"Row {row}: Run time: {end_time - start_time}")
 
-        eval_results = Individual.reconstruct_solution(exact_solution)
+            best_solution_routes = best_solution.routes_to_dict()
+            eval_results = Individual.reconstruct_solution(exact_solution)
 
-        write_data_to_sheet(row=row, math_routes=str(exact_solution), math_objective=eval_results["penalised_cost"],
-                            meta_routes=best_solution.pretty_route_output(), meta_time=end_time - start_time,
-                            meta_objective=best_solution.get_penalised_cost(1))
+            write_data_to_sheet(row=row, exact_routes=exact_solution, exact_objective=eval_results.get_penalised_cost(),
+                                meta_routes=best_solution.routes_to_dict(),
+                                pretty_meta_routes=best_solution.pretty_route_output(), meta_time=end_time - start_time,
+                                meta_objective=best_solution.get_penalised_cost(1))
+        else:
+            # Extract the exact data and solution, as well as the metaheuristic solution.
+            text_data = get_exact_output_data_from_sheet(row)
+            input_data, exact_solution = extract_data_from_output(text_data)
+            apply_verification_settings()
+
+            best_solution_routes = ArcRoute.load_archive_routes("Solve Times Summary.xlsx", "Run Data", f"N{row}")
+
+        if do_simple_evaluation:
+            # Evaluate both solutions fairly, purely based on the objective function of the model.
+            simple_exact_objective = evaluate_solution_simply(exact_solution)
+            simple_meta_objective = evaluate_solution_simply(best_solution_routes)
+
+            write_data_to_sheet(row=row, simple_exact_objective=simple_exact_objective,
+                                simple_meta_objective=simple_meta_objective)
+
+        if verify_constraints_met:
+            # Verify that the solution meets all the mathematical model constraints
+            verify_constraints(best_solution_routes)
