@@ -1,6 +1,6 @@
 import json
 from time import perf_counter
-from typing import List, Dict, Tuple, Union, Any
+from typing import List, Dict, Tuple, Union, Any, Optional
 
 from openpyxl import load_workbook
 
@@ -184,9 +184,9 @@ def write_data_to_sheet(row: int = None, exact_routes: Dict[int, List[List[List[
     workbook.save(filename)
 
 
-def apply_verification_settings():
+def apply_verification_settings(run_data: Data):
     """Applies the input data for the validation to the settings."""
-    run_settings.set_run_data(input_data)
+    run_settings.set_run_data(run_data)
     run_settings.RUN_CONFIG.allow_unlimited_fleets = False
     run_settings.RUN_CONFIG.consider_rest_time = False
     run_settings.RUN_CONFIG.return_to_depot_before = 32
@@ -265,6 +265,7 @@ def verify_constraints(solution: Dict[int, List[List[Union[Tuple[int, int], List
     distance_cost = run_settings.RUN_DATA.distance_cost
     time_cost = run_settings.RUN_DATA.time_cost
     vehicle_types = run_settings.RUN_DATA.vehicle_types
+    available_vehicles = run_settings.RUN_DATA.available_vehicles
     pallet_capacity = run_settings.RUN_DATA.pallet_capacity
     demand = run_settings.RUN_DATA.demand
     window_start = run_settings.RUN_DATA.window_start
@@ -272,12 +273,46 @@ def verify_constraints(solution: Dict[int, List[List[Union[Tuple[int, int], List
     average_unload_time = run_settings.RUN_DATA.average_unload_time
 
     travel_time_const_matrix: List[List[float]] = [
-        [window_end[i] + (demand[i] * average_unload_time[i]) + times for j in location_indices] for i in
-        location_indices]
+        [max(window_end[i] + (demand[i] * average_unload_time[i]) + times[i][j] - window_start[j], 0)
+         for j in location_indices]
+        for i in location_indices]
     travel_time_const = 24
 
-    for j in customers:
-        constraints["ctDemand"] = sum()
+    # Variables
+    travel = [[[False for _ in location_indices] for _ in location_indices] for _ in vehicle_indices]
+    deliveries = [[0 for _ in location_indices] for _ in vehicle_indices]
+    service_start = [[0.0 for _ in location_indices] for _ in vehicle_indices]
+    travel_time = [[[0.0 for _ in location_indices] for _ in location_indices] for _ in vehicle_indices]
+
+    # Set variables according to solution
+    previous_vehicles = 0
+    for vehicle_type_index, tour in solution.items():
+        for route_index, route in enumerate(tour):
+            prev_customer_index = 0
+            total_delivered = 0
+            departure_time = -1
+            for stop_index, stop in enumerate(route):
+                customer_index = stop[0]
+                delivered = stop[1]
+                vehicle_index = previous_vehicles + route_index
+
+                # Account for the travel and delivery matrix
+                travel[prev_customer_index][customer_index][vehicle_index] = True
+                deliveries[customer_index][vehicle_index] = delivered
+
+                # How to account for the time matrices?
+
+                prev_customer_index = customer_index
+                total_delivered += delivered
+
+                if stop_index == len(route) - 1:
+                    travel[customer_index][location_indices[-1]][vehicle_index] = True
+                    deliveries[0][vehicle_index] = total_delivered
+
+        previous_vehicles += available_vehicles[vehicle_type_index]
+
+    # for j in customers:
+    #     constraints["ctDemand"] = sum()
 
 
 def check_all_true(to_check: Dict[Any, bool]) -> bool:
@@ -289,18 +324,19 @@ if __name__ == "__main__":
     """Verify the metaheuristic against all mathematical instances."""
     # start_row = 38  # The row to start on
     # end_row = start_row + 1  # The row to stop before
-    rows_to_validate = range(4, 5)
-    # rows_to_validate = [28]
-    run_metaheuristic = False
-    do_simple_evaluation = False
-    verify_constraints_met = True
+    # rows_to_validate = range(49, 57)
+    rows_to_validate = [8, 10, 11, 12, 14, 18, 19, 20, 23, 24, 33, 33, 36, 42, 43, 45, 46, 48, 50, 51, 52]
+    run_metaheuristic = True
+    do_simple_evaluation = True
+    eval_cell: Optional[str] = None  # "J23"
+    verify_constraints_met = False
 
     for row in rows_to_validate:
         if run_metaheuristic:
             # Extract the exact data and run the metaheuristic to find a solution and evaluate the exact solution
             text_data = get_exact_output_data_from_sheet(row)
             input_data, exact_solution = extract_data_from_output(text_data)
-            apply_verification_settings()
+            apply_verification_settings(input_data)
 
             start_time = perf_counter()
             runner = Runner(5000, -1, use_multiprocessing=False)
@@ -321,7 +357,7 @@ if __name__ == "__main__":
             # Extract the exact data and solution, as well as the metaheuristic solution.
             text_data = get_exact_output_data_from_sheet(row)
             input_data, exact_solution = extract_data_from_output(text_data)
-            apply_verification_settings()
+            apply_verification_settings(input_data)
 
             best_solution_routes = ArcRoute.load_archive_routes("Solve Times Summary.xlsx", "Run Data", f"N{row}")
 
@@ -332,6 +368,12 @@ if __name__ == "__main__":
 
             write_data_to_sheet(row=row, simple_exact_objective=simple_exact_objective,
                                 simple_meta_objective=simple_meta_objective)
+
+        if eval_cell:
+            solution = Individual.reconstruct_solution(
+                ArcRoute.load_archive_routes("Solve Times Summary.xlsx", "Run Data", eval_cell))
+            print(solution)
+            print(solution.pretty_route_output())
 
         if verify_constraints_met:
             # Verify that the solution meets all the mathematical model constraints
