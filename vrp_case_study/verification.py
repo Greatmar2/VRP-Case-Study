@@ -1,6 +1,6 @@
 import json
 from time import perf_counter
-from typing import List, Dict, Tuple, Union, Any, Optional
+from typing import List, Dict, Tuple, Union, Any
 
 from openpyxl import load_workbook
 
@@ -30,7 +30,7 @@ def extract_data_from_output(math_output: str) -> Tuple[Data, Dict[int, List[Lis
     demands: List[int] = [0]
     window_starts: List[int] = [0]
     window_ends: List[int] = [24]
-    average_unload_time: List[float] = [0.091667]
+    average_unload_time: List[float] = [0.0]
     coords: List[Tuple[float, float]] = [(0, 0)]
     while output_lines[current_line] and output_lines[current_line].count("Customer ") == 1:
         words = output_lines[current_line].split()
@@ -230,7 +230,8 @@ def evaluate_solution_simply(solution: Dict[int, List[List[Union[Tuple[int, int]
     return cost
 
 
-def verify_constraints(solution: Dict[int, List[List[Union[Tuple[int, int], List[int]]]]]):
+# def verify_constraints(solution_to_verify: Dict[int, List[List[Union[Tuple[int, int], List[int]]]]]):
+def verify_constraints(solution_to_verify: Individual):
     """Verify that the given solution meets all the mathematical model's constraints."""
     constraints = {
         "ctDemand": True,
@@ -241,7 +242,7 @@ def verify_constraints(solution: Dict[int, List[List[Union[Tuple[int, int], List
         "ctDepartOnce": True,
         "ctNoReturn": True,
         "ctNoDepart": True,
-        "restrictService": True,
+        "ctRestrictService": True,
         "ctTravel": True,
         "ctWindowStart": True,
         "ctWindowEnd": True,
@@ -251,68 +252,138 @@ def verify_constraints(solution: Dict[int, List[List[Union[Tuple[int, int], List
 
     # Prepare the parameters and variables
     # Parameters
-    locations = [{"name": location, "index": index} for index, location in enumerate(run_settings.RUN_DATA.locations)]
-    location_indices = [location["index"] for location in locations]
-    customers = locations[1:-1]
-    customer_indices = [customer["index"] for customer in customers]
-    vehicles = [{"name": f"{vehicle_type.name}{index}", "index": index, "type": vehicle_type, "type_index": type_index}
-                for type_index, vehicle_type in enumerate(data_globals.ALL_VEHICLE_TYPES)
-                for index in range(1, vehicle_type.available_vehicles + 1)]
-    vehicle_indices = [vehicle["type_index"] for vehicle in vehicles]
+    depot: Location = data_globals.DEPOT
+    customers: List[Location] = data_globals.ALL_CUSTOMERS
+    depot_return = Location(len(customers) + 1)
+    locations: List[Location] = [depot, *customers, depot_return]
+    vehicle_types: List[VehicleType] = data_globals.ALL_VEHICLE_TYPES
 
-    distances = run_settings.RUN_DATA.distances
-    times = run_settings.RUN_DATA.times
-    distance_cost = run_settings.RUN_DATA.distance_cost
-    time_cost = run_settings.RUN_DATA.time_cost
-    vehicle_types = run_settings.RUN_DATA.vehicle_types
-    available_vehicles = run_settings.RUN_DATA.available_vehicles
-    pallet_capacity = run_settings.RUN_DATA.pallet_capacity
-    demand = run_settings.RUN_DATA.demand
-    window_start = run_settings.RUN_DATA.window_start
-    window_end = run_settings.RUN_DATA.window_end
-    average_unload_time = run_settings.RUN_DATA.average_unload_time
+    class Vehicle:
+        """Vehicle class so that the objects can be used as indices (due to the __index__ function)."""
+
+        def __init__(self, vehicle_type: VehicleType):
+            self.vehicle_type: VehicleType = vehicle_type
+            self._index: int = -1
+            self.name: str = ""
+
+        def __index__(self):
+            return self._index
+
+        @property
+        def index(self) -> int:
+            return index
+
+        @index.setter
+        def index(self, val: int):
+            self._index = val
+            self.name = f"SP{val}"
+
+    vehicles = [Vehicle(vehicle_type) for vehicle_type in vehicle_types
+                for index in range(1, vehicle_type.available_vehicles + 1)]
+    for index, vehicle in enumerate(vehicles):
+        vehicle.index = index
+
+    # distances = run_settings.RUN_DATA.distances
+    # times = run_settings.RUN_DATA.times
+    # distance_cost = run_settings.RUN_DATA.distance_cost
+    # time_cost = run_settings.RUN_DATA.time_cost
+    # vehicle_types = run_settings.RUN_DATA.vehicle_types
+    # available_vehicles = run_settings.RUN_DATA.available_vehicles
+    # pallet_capacity = run_settings.RUN_DATA.pallet_capacity
+    # demand = run_settings.RUN_DATA.demand
+    # window_start = run_settings.RUN_DATA.window_start
+    # window_end = run_settings.RUN_DATA.window_end
+    # average_unload_time = run_settings.RUN_DATA.average_unload_time
 
     travel_time_const_matrix: List[List[float]] = [
-        [max(window_end[i] + (demand[i] * average_unload_time[i]) + times[i][j] - window_start[j], 0)
-         for j in location_indices]
-        for i in location_indices]
-    travel_time_const = 24
+        [max(i.window_end + i.expected_unload_time + i.travel_times[j] - j.window_start, 0)
+         for j in locations]
+        for i in locations]
+    travel_time_const = 32
 
     # Variables
-    travel = [[[False for _ in location_indices] for _ in location_indices] for _ in vehicle_indices]
-    deliveries = [[0 for _ in location_indices] for _ in vehicle_indices]
-    service_start = [[0.0 for _ in location_indices] for _ in vehicle_indices]
-    travel_time = [[[0.0 for _ in location_indices] for _ in location_indices] for _ in vehicle_indices]
+    travel = [[[False for _ in vehicles] for _ in locations] for _ in locations]
+    deliveries = [[0 for _ in vehicles] for _ in locations]
+    service_start = [[i.window_start for _ in vehicles] for i in locations]
+    travel_time = [[[0.0 for _ in vehicles] for _ in locations] for _ in locations]
 
     # Set variables according to solution
     previous_vehicles = 0
-    for vehicle_type_index, tour in solution.items():
+    for vehicle_type_index, tour in solution_to_verify.routes.items():
         for route_index, route in enumerate(tour):
-            prev_customer_index = 0
+            vehicle_index = previous_vehicles + route_index
+
+            prev_stop = depot
             total_delivered = 0
-            departure_time = -1
-            for stop_index, stop in enumerate(route):
-                customer_index = stop[0]
-                delivered = stop[1]
-                vehicle_index = previous_vehicles + route_index
+            service_start[prev_stop][vehicle_index] = route.departure_time
+
+            for stop_index, stop in enumerate(route.sequence):
 
                 # Account for the travel and delivery matrix
-                travel[prev_customer_index][customer_index][vehicle_index] = True
-                deliveries[customer_index][vehicle_index] = delivered
+                travel[prev_stop][stop][vehicle_index] = True
+                deliveries[stop][vehicle_index] = stop.serviced_demand
 
-                # How to account for the time matrices?
+                # Account for the time matrices
+                service_start[stop][vehicle_index] = service_start[prev_stop][vehicle_index] + \
+                                                     (prev_stop.expected_unload_time) + prev_stop.travel_times[stop]
+                if service_start[stop][vehicle_index] < stop.window_start:
+                    service_start[stop][vehicle_index] = stop.window_start
+                if service_start[stop][vehicle_index] > stop.window_end:
+                    raise ValueError(
+                        f"Service start {service_start[stop][vehicle_index]} at {stop} is after window end.")
+                travel_time[prev_stop][stop][vehicle_index] = service_start[stop][vehicle_index] - \
+                                                              service_start[prev_stop][vehicle_index]
 
-                prev_customer_index = customer_index
-                total_delivered += delivered
+                prev_stop = stop
+                total_delivered += stop.serviced_demand
 
-                if stop_index == len(route) - 1:
-                    travel[customer_index][location_indices[-1]][vehicle_index] = True
-                    deliveries[0][vehicle_index] = total_delivered
+                if stop_index == len(route.sequence) - 1:
+                    travel[stop][locations[-1]][vehicle_index] = True
+                    deliveries[depot][vehicle_index] = total_delivered
+                    service_start[depot_return][vehicle_index] = service_start[stop][vehicle_index] + \
+                                                                 (stop.expected_unload_time) + \
+                                                                 stop.travel_times[depot_return]
+                    travel_time[stop][depot_return][vehicle_index] = service_start[depot_return][vehicle_index] - \
+                                                                     service_start[stop][vehicle_index]
 
-        previous_vehicles += available_vehicles[vehicle_type_index]
+        previous_vehicles += vehicle_types[vehicle_type_index].available_vehicles
 
-    # for j in customers:
-    #     constraints["ctDemand"] = sum()
+    for j in customers:
+        constraints["ctDemand"] = sum(deliveries[j][k] for k in vehicles) == j.demand
+        if not constraints["ctDemand"]:
+            raise ValueError(f"Constraint broken!\n{constraints}")
+    for k in vehicles:
+        constraints["ctLoad"] = deliveries[depot][k] == sum(deliveries[j][k] for j in customers)
+        constraints["ctReturnEmpty"] = deliveries[depot_return][k] == 0
+        constraints["ctDepart"] = deliveries[depot][k] <= k.vehicle_type.capacity * sum(
+            travel[depot][j][k] for j in customers)
+        constraints["ctReturn"] = sum(travel[depot][j][k] for j in customers) - sum(
+            travel[i][depot_return][k] for i in customers) == 0
+        constraints["ctDepartOnce"] = sum(travel[depot][j][k] for j in customers) <= 1
+        constraints["ctNoReturn"] = sum(travel[i][depot][k] for i in locations) == 0
+        constraints["ctNoDepart"] = sum(travel[depot_return][j][k] for j in locations) == 0
+        for j in customers:
+            constraints["ctRestrictService"] = deliveries[j][k] <= k.vehicle_type.capacity * sum(
+                travel[i][j][k] for i in locations)
+            constraints["ctTravel"] = sum(travel[i][j][k] for i in locations if i != j) - sum(
+                travel[j][i][k] for i in locations) == 0
+            if not check_all_true(constraints):
+                raise ValueError(f"Constraint broken!\n{constraints}")
+        for j in locations:
+            constraints["ctWindowStart"] = j.window_start <= service_start[j][
+                k]  # or sum(travel[i][j][k] for i in locations) == 0
+            constraints["ctWindowEnd"] = service_start[j][
+                                             k] <= j.window_end  # or sum(travel[i][j][k] for i in locations) == 0
+            for i in locations:
+                constraints["ctWindowTravelTime"] = service_start[i][k] + (deliveries[i][k] * i.average_unload_time) + \
+                                                    i.travel_times[j] <= service_start[j][k] + (
+                                                            (1 - travel[i][j][k]) * travel_time_const_matrix[i][j])
+                constraints["ctTravelTimeGreater"] = travel_time[i][j][k] >= service_start[j][k] - service_start[i][
+                    k] - (travel_time_const * (1 - travel[i][j][k]))
+                if not check_all_true(constraints):
+                    raise ValueError(f"Constraint broken!\n{constraints}")
+
+    print(f"All constraints met for {solution}!")
 
 
 def check_all_true(to_check: Dict[Any, bool]) -> bool:
@@ -325,10 +396,11 @@ if __name__ == "__main__":
     # start_row = 38  # The row to start on
     # end_row = start_row + 1  # The row to stop before
     # rows_to_validate = range(49, 57)
-    rows_to_validate = [8, 10, 11, 12, 14, 18, 19, 20, 23, 24, 33, 33, 36, 42, 43, 45, 46, 48, 50, 51, 52]
+    rows_to_validate = [12, 14, 18, 20, 34, 45, 46, 50, 51, 52, *range(54, 62)]
+    # rows_to_validate = [24]
     run_metaheuristic = True
     do_simple_evaluation = True
-    eval_cell: Optional[str] = None  # "J23"
+    eval_cells_in_cols = []  # ["J", "N"]
     verify_constraints_met = False
 
     for row in rows_to_validate:
@@ -369,12 +441,14 @@ if __name__ == "__main__":
             write_data_to_sheet(row=row, simple_exact_objective=simple_exact_objective,
                                 simple_meta_objective=simple_meta_objective)
 
-        if eval_cell:
+        for col in eval_cells_in_cols:
             solution = Individual.reconstruct_solution(
-                ArcRoute.load_archive_routes("Solve Times Summary.xlsx", "Run Data", eval_cell))
+                ArcRoute.load_archive_routes("Solve Times Summary.xlsx", "Run Data", f"{col}{row}"))
             print(solution)
             print(solution.pretty_route_output())
 
-        if verify_constraints_met:
-            # Verify that the solution meets all the mathematical model constraints
-            verify_constraints(best_solution_routes)
+            if verify_constraints_met:
+                # Verify that the solution meets all the mathematical model constraints
+                solution = Individual.reconstruct_solution(
+                    ArcRoute.load_archive_routes("Solve Times Summary.xlsx", "Run Data", f"{col}{row}"))
+                verify_constraints(solution)
