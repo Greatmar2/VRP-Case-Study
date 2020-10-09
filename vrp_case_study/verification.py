@@ -396,14 +396,17 @@ if __name__ == "__main__":
     # start_row = 38  # The row to start on
     # end_row = start_row + 1  # The row to stop before
     # rows_to_validate = range(49, 57)
-    rows_to_validate = [12, 14, 18, 20, 34, 45, 46, 50, 51, 52, *range(54, 62)]
-    # rows_to_validate = [24]
+    # rows_to_validate = [12, 14, 18, 20, 24, 35, 37, 38, 42, 45]
+    rows_to_validate = [50, 51, 52, 55, 57, 59, 60]
+    # rows_to_validate = [34]
     run_metaheuristic = True
     do_simple_evaluation = True
     eval_cells_in_cols = []  # ["J", "N"]
     verify_constraints_met = False
 
     for row in rows_to_validate:
+        print(f"\nVerifying row {row}\n")
+
         if run_metaheuristic:
             # Extract the exact data and run the metaheuristic to find a solution and evaluate the exact solution
             text_data = get_exact_output_data_from_sheet(row)
@@ -442,6 +445,7 @@ if __name__ == "__main__":
                                 simple_meta_objective=simple_meta_objective)
 
         for col in eval_cells_in_cols:
+
             solution = Individual.reconstruct_solution(
                 ArcRoute.load_archive_routes("Solve Times Summary.xlsx", "Run Data", f"{col}{row}"))
             print(solution)
