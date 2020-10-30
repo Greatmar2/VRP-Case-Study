@@ -396,12 +396,10 @@ if __name__ == "__main__":
     # start_row = 38  # The row to start on
     # end_row = start_row + 1  # The row to stop before
     # rows_to_validate = range(49, 57)
-    # rows_to_validate = [12, 14, 18, 20, 24, 35, 37, 38, 42, 45]
-    rows_to_validate = [50, 51, 52, 55, 57, 59, 60]
-    # rows_to_validate = [34]
-    run_metaheuristic = True
-    do_simple_evaluation = True
-    eval_cells_in_cols = []  # ["J", "N"]
+    rows_to_validate = [53]
+    run_metaheuristic = False
+    do_simple_evaluation = False
+    eval_cells_in_cols = ["J", "N"]
     verify_constraints_met = False
 
     for row in rows_to_validate:
@@ -434,7 +432,7 @@ if __name__ == "__main__":
             input_data, exact_solution = extract_data_from_output(text_data)
             apply_verification_settings(input_data)
 
-            best_solution_routes = ArcRoute.load_archive_routes("Solve Times Summary.xlsx", "Run Data", f"N{row}")
+            best_solution_routes = ArcRoute.load_json_routes("Solve Times Summary.xlsx", "Run Data", f"N{row}")
 
         if do_simple_evaluation:
             # Evaluate both solutions fairly, purely based on the objective function of the model.
@@ -447,12 +445,12 @@ if __name__ == "__main__":
         for col in eval_cells_in_cols:
 
             solution = Individual.reconstruct_solution(
-                ArcRoute.load_archive_routes("Solve Times Summary.xlsx", "Run Data", f"{col}{row}"))
+                ArcRoute.load_json_routes("Solve Times Summary.xlsx", "Run Data", f"{col}{row}"))
             print(solution)
             print(solution.pretty_route_output())
 
             if verify_constraints_met:
                 # Verify that the solution meets all the mathematical model constraints
                 solution = Individual.reconstruct_solution(
-                    ArcRoute.load_archive_routes("Solve Times Summary.xlsx", "Run Data", f"{col}{row}"))
+                    ArcRoute.load_json_routes("Solve Times Summary.xlsx", "Run Data", f"{col}{row}"))
                 verify_constraints(solution)

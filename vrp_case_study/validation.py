@@ -538,7 +538,7 @@ class ArcRoute:
         workbook.save(filename)
 
     @staticmethod
-    def load_archive_routes(filename: str, sheetname: str = "Archive Routes", cell: str = "A1") -> Dict[
+    def load_json_routes(filename: str, sheetname: str = "Archive Routes", cell: str = "A1") -> Dict[
         int, List[List[List[int]]]]:
         """Load the archive routes from the workbook in JSON format."""
         workbook = load_workbook(filename, read_only=True)
@@ -638,7 +638,7 @@ def verify_routes_demand(filename: str):
     conversion process match the actual demands."""
     # Store the demand per customer in a dict for later
     serviced_demands: Dict[int, int] = {}
-    archive_routes = ArcRoute.load_archive_routes(filename)
+    archive_routes = ArcRoute.load_json_routes(filename)
 
     # Iterate through all stops in all tours
     for tour in archive_routes.values():
@@ -771,11 +771,11 @@ def run_algorithm(nonimproving_iterations: int, max_run_time: int, seeded: bool,
         if seed_filname and seed_sheetname and seed_cells:
             seeded_solutions = [
                 Individual.reconstruct_solution(
-                    ArcRoute.load_archive_routes(seed_filname, seed_sheetname, solution_cell), allow_completion=True)
+                    ArcRoute.load_json_routes(seed_filname, seed_sheetname, solution_cell), allow_completion=True)
                 for solution_cell in seed_cells]
 
         # Load the archive's routes to seed the population
-        archive_routes = ArcRoute.load_archive_routes(data_filename)
+        archive_routes = ArcRoute.load_json_routes(data_filename)
         archive_solution = Individual.reconstruct_solution(archive_routes, allow_completion=False)
         seeded_solutions.append(archive_solution)
 
@@ -807,10 +807,11 @@ def run_algorithm(nonimproving_iterations: int, max_run_time: int, seeded: bool,
 
 
 def evaluate_archive_routes(output_row: int, output_filename: str = "Solve Times Summary.xlsx",
-                            data_filename: str = "Model Data.xlsx", should_print=False):
+                            data_filename: str = "Model Data.xlsx", should_save_output: bool = True,
+                            should_print: bool = False):
     """Loads archive's routes and evaluates them."""
     # Load the archive's routes to be compared
-    archive_routes = ArcRoute.load_archive_routes(filename=data_filename)
+    archive_routes = ArcRoute.load_json_routes(filename=data_filename)
 
     # Load data for this run
     run_data = import_data(data_filename)
@@ -823,8 +824,9 @@ def evaluate_archive_routes(output_row: int, output_filename: str = "Solve Times
         print(archive_solution)
         print(archive_solution.pretty_route_output())
 
-    save_output(output_filename, row=output_row, archive_routes=archive_solution.routes_to_dict(),
-                archive_cost=archive_solution.cost, archive_penalty=archive_solution.penalty)
+    if should_save_output:
+        save_output(output_filename, row=output_row, archive_routes=archive_solution.routes_to_dict(),
+                    archive_cost=archive_solution.cost, archive_penalty=archive_solution.penalty)
 
 
 def tabulate_routes(data_filename: str, route_filename: str, sheet: str, cell: str):
@@ -843,7 +845,7 @@ def tabulate_routes(data_filename: str, route_filename: str, sheet: str, cell: s
     # \end{table}
 
     # Load the routes and data
-    routes = ArcRoute.load_archive_routes(route_filename, sheet, cell)
+    routes = ArcRoute.load_json_routes(route_filename, sheet, cell)
     run_data = import_data(data_filename)
     run_settings.set_run_data(run_data)
 
@@ -896,10 +898,11 @@ if __name__ == "__main__":
     # Update the travel matrix
     # ArcLocation.update_matrices(filename="SPAR Locations and Schedule.xlsx", sheetname="Store Locations")
 
-    output_row = 33
-    data_filename = "Model Data - 26 Nov.xlsx"
+    # output_row = 31
+    # data_filename = "Model Data - 7 Oct.xlsx"
     # Evaluate the original solution to the problem
-    evaluate_archive_routes(output_row=output_row, data_filename=data_filename, should_print=True)
+    # evaluate_archive_routes(output_row=output_row, data_filename=data_filename, should_save_output=False,
+    #                         should_print=True)
     # Call the algorithm to solve the problem
     # run_algorithm(nonimproving_iterations=2500, max_run_time=7200, seeded=False, output_row=output_row,
     #               data_filename=data_filename)
@@ -911,6 +914,13 @@ if __name__ == "__main__":
     #               data_filename=data_filename, seed_filname="Solve Times Summary.xlsx", seed_sheetname="Case Study",
     #               seed_cells=["E17"])
 
+    # Load and evaluate a particular solution
+    routes = ArcRoute.load_json_routes(filename="Solve Times Summary.xlsx", sheetname="Case Study", cell="B33")
+    run_data = import_data(filename="Model Data - 26 Nov.xlsx")
+    run_settings.set_run_data(run_data)
+    solution = Individual.reconstruct_solution(routes, allow_completion=False)
+    print(solution)
+
     # Convert solution to LaTeX table
     # tabulate_routes(data_filename="Model Data - 26 Nov.xlsx", route_filename="Solve Times Summary.xlsx",
-    #                 sheet="Case Study", cell="F30")
+    #                 sheet="Case Study", cell="F33")
