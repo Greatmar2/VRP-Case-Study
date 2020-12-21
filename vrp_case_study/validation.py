@@ -852,6 +852,8 @@ def tabulate_routes(data_filename: str, route_filename: str, sheet: str, cell: s
     # Evaluate the solution
     solution = Individual.reconstruct_solution(routes, allow_completion=False)
 
+    print(f"Tabulating {solution} with {solution.num_routes} routes\n")
+
     # Now create the table output
     latex_table = "\\begin{table}[]\n" \
                   "\\begin{tabular}{ccrrr}\n" \
@@ -898,8 +900,8 @@ if __name__ == "__main__":
     # Update the travel matrix
     # ArcLocation.update_matrices(filename="SPAR Locations and Schedule.xlsx", sheetname="Store Locations")
 
-    # output_row = 31
-    # data_filename = "Model Data - 7 Oct.xlsx"
+    output_row = 31
+    data_filename = "Model Data - 7 Oct.xlsx"
     # Evaluate the original solution to the problem
     # evaluate_archive_routes(output_row=output_row, data_filename=data_filename, should_save_output=False,
     #                         should_print=True)
@@ -915,12 +917,23 @@ if __name__ == "__main__":
     #               seed_cells=["E17"])
 
     # Load and evaluate a particular solution
-    routes = ArcRoute.load_json_routes(filename="Solve Times Summary.xlsx", sheetname="Case Study", cell="B33")
-    run_data = import_data(filename="Model Data - 26 Nov.xlsx")
-    run_settings.set_run_data(run_data)
-    solution = Individual.reconstruct_solution(routes, allow_completion=False)
-    print(solution)
+    # routes = ArcRoute.load_json_routes(filename="Solve Times Summary.xlsx", sheetname="Case Study", cell="B33")
+    # run_data = import_data(filename="Model Data - 26 Nov.xlsx")
+    # run_settings.set_run_data(run_data)
+    # solution = Individual.reconstruct_solution(routes, allow_completion=False)
+    # print(solution)
 
     # Convert solution to LaTeX table
+    # Metaheuristic solution
     # tabulate_routes(data_filename="Model Data - 26 Nov.xlsx", route_filename="Solve Times Summary.xlsx",
     #                 sheet="Case Study", cell="F33")
+    # Copy of archive solution
+    # tabulate_routes(data_filename="Model Data - 26 Nov.xlsx", route_filename="Solve Times Summary.xlsx",
+    #                 sheet="Case Study", cell="B33")
+    # Archive solution
+    # tabulate_routes(data_filename="Model Data - 7 Oct.xlsx", route_filename="Model Data - 7 Oct.xlsx",
+    #                 sheet="Archive Routes", cell="A1")
+    tabulate_routes(data_filename="Model Data - 30 Oct.xlsx", route_filename="Model Data - 30 Oct.xlsx",
+                    sheet="Archive Routes", cell="A1")
+    # tabulate_routes(data_filename="Model Data - 26 Nov.xlsx", route_filename="Model Data - 26 Nov.xlsx",
+    #                 sheet="Archive Routes", cell="A1")
