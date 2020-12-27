@@ -395,10 +395,10 @@ if __name__ == "__main__":
     """Verify the metaheuristic against all mathematical instances."""
     # start_row = 38  # The row to start on
     # end_row = start_row + 1  # The row to stop before
-    # rows_to_validate = range(49, 57)
-    rows_to_validate = [53]
-    run_metaheuristic = False
-    do_simple_evaluation = False
+    rows_to_validate = range(72, 82)
+    # rows_to_validate = [32]
+    run_metaheuristic = True
+    do_simple_evaluation = True
     eval_cells_in_cols = ["J", "N"]
     verify_constraints_met = False
 
